@@ -43,6 +43,36 @@ Google OAuth setup
 - Authorized redirect URIs:
   - local Supabase: `http://127.0.0.1:54321/auth/v1/callback`
   - hosted Supabase callback URL from the Supabase Google provider settings
+- Public policy URLs for provider review:
+  - Terms of Service: `{app_origin}/terms`
+  - EULA: `{app_origin}/eula`
+
+Troubleshooting Google OAuth
+
+If Supabase returns:
+
+```json
+{"code":400,"error_code":"validation_failed","msg":"Unsupported provider: provider is not enabled"}
+```
+
+then the app is calling `signInWithOAuth({ provider: 'google' })`, but the
+Google provider is not enabled for the Supabase project named in
+`VITE_SUPABASE_URL`.
+
+For hosted Supabase:
+1. Open the Supabase project dashboard.
+2. Go to Authentication -> Sign In / Providers.
+3. Enable Google.
+4. Add the Google OAuth Client ID and Client Secret.
+5. Copy the hosted Supabase callback URL into Google Cloud as an authorized
+   redirect URI.
+6. Add the app origin, such as `http://localhost:5173`, as an authorized
+   JavaScript origin in Google Cloud.
+
+For local Supabase CLI development:
+1. Set `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET`.
+2. Add the `[auth.external.google]` section below to `supabase/config.toml`.
+3. Restart the local Supabase stack after editing config.
 
 Storage bucket
 

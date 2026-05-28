@@ -22,6 +22,7 @@ const uploadMessage = ref('')
 const compositionTitle = ref('')
 const activeDoc = ref('upload')
 const lastUpload = ref(null)
+const routePath = ref(normalizePath(window.location.pathname))
 
 let authSubscription = null
 
@@ -31,10 +32,120 @@ const docs = [
   { id: 'supabase', label: 'Supabase', body: supabaseConfigDoc },
 ]
 
+const legalPages = [
+  {
+    path: '/terms',
+    label: 'Terms of Service',
+    title: 'Terms of Service',
+    updated: 'May 28, 2026',
+    intro:
+      'These Terms of Service govern access to and use of Composition Critique, a web application for uploading composition source materials and related metadata for critique workflows.',
+    sections: [
+      {
+        title: 'Eligibility and Accounts',
+        body:
+          'You must be able to form a binding agreement to use the service. You are responsible for the activity that occurs under your account and for keeping your sign-in credentials secure.',
+      },
+      {
+        title: 'Uploaded Content',
+        body:
+          'You retain ownership of PDFs, MusicXML files, metadata, and other materials you upload. You grant Composition Critique a limited license to store, process, display, and transmit that content only as needed to operate and improve the service.',
+      },
+      {
+        title: 'Acceptable Use',
+        body:
+          'Do not upload content you do not have the right to use, malicious files, illegal material, or content that infringes another person\'s rights. Do not attempt to bypass access controls, overload the service, or interfere with other users.',
+      },
+      {
+        title: 'Service Availability',
+        body:
+          'The service may change, pause, or become unavailable from time to time. Features may be modified or discontinued, especially while the product is in development.',
+      },
+      {
+        title: 'No Professional Advice',
+        body:
+          'Composition Critique may help organize materials and critique workflows, but it does not replace professional legal, music publishing, licensing, or business advice.',
+      },
+      {
+        title: 'Termination',
+        body:
+          'Access may be suspended or terminated if these terms are violated or if continued access would create legal, security, or operational risk.',
+      },
+      {
+        title: 'Disclaimers and Liability',
+        body:
+          'The service is provided as is and as available. To the fullest extent permitted by law, Composition Critique disclaims implied warranties and will not be liable for indirect, incidental, special, consequential, or punitive damages.',
+      },
+      {
+        title: 'Contact',
+        body:
+          'Questions about these terms should be sent to the project owner through the support or contact channel published with the deployed service.',
+      },
+    ],
+  },
+  {
+    path: '/eula',
+    label: 'EULA',
+    title: 'End User License Agreement',
+    updated: 'May 28, 2026',
+    intro:
+      'This End User License Agreement describes the limited rights granted to use the Composition Critique application and related software interface.',
+    sections: [
+      {
+        title: 'License Grant',
+        body:
+          'Subject to this agreement, you receive a limited, revocable, non-exclusive, non-transferable license to access and use Composition Critique for lawful composition upload and critique workflows.',
+      },
+      {
+        title: 'Restrictions',
+        body:
+          'You may not copy, modify, reverse engineer, sell, sublicense, rent, or distribute the application except as expressly allowed by law or by written permission from the project owner.',
+      },
+      {
+        title: 'Ownership',
+        body:
+          'The application, design, code, documentation, and service infrastructure are owned by the project owner or its licensors. This agreement does not transfer ownership of the application to you.',
+      },
+      {
+        title: 'Your Materials',
+        body:
+          'You retain ownership of the composition materials you upload. The application may store and process your materials only to provide the service and related functionality.',
+      },
+      {
+        title: 'Third-Party Services',
+        body:
+          'The application may rely on third-party services, including authentication, hosting, storage, and database providers. Your use of those features may also be subject to the third-party provider terms.',
+      },
+      {
+        title: 'Updates',
+        body:
+          'The application may be updated automatically. Updates may add, change, or remove functionality and may be required for continued access.',
+      },
+      {
+        title: 'Termination',
+        body:
+          'This license ends if you stop using the service, if your access is terminated, or if you violate this agreement. After termination, you must stop using the application.',
+      },
+      {
+        title: 'Disclaimer',
+        body:
+          'The application is provided as is without warranties of any kind. To the fullest extent permitted by law, all implied warranties are disclaimed.',
+      },
+    ],
+  },
+]
+
 const currentDoc = computed(() => docs.find((doc) => doc.id === activeDoc.value) ?? docs[0])
 const user = computed(() => session.value?.user ?? null)
 const isUploading = computed(() => uploadStatus.value === 'uploading')
 const hasSelectionErrors = computed(() => selectedFiles.value.some((item) => item.error))
+const isOauthConsentRoute = computed(() => routePath.value === '/oauth/consent')
+const currentLegalPage = computed(() => legalPages.find((page) => page.path === routePath.value) ?? null)
+const isLegalRoute = computed(() => Boolean(currentLegalPage.value))
+const oauthQueryParams = computed(() => {
+  const params = new URLSearchParams(window.location.search)
+  return Array.from(params.entries()).map(([key, value]) => ({ key, value }))
+})
 const canUpload = computed(() => {
   return (
     isSupabaseConfigured &&
@@ -46,6 +157,8 @@ const canUpload = computed(() => {
 })
 
 onMounted(async () => {
+  window.addEventListener('popstate', syncRoute)
+
   if (!isSupabaseConfigured) {
     authReady.value = true
     return
@@ -68,8 +181,28 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('popstate', syncRoute)
   authSubscription?.unsubscribe()
 })
+
+function normalizePath(pathname) {
+  const normalized = pathname.replace(/\/{2,}/g, '/').replace(/\/$/, '')
+  return normalized || '/'
+}
+
+function syncRoute() {
+  routePath.value = normalizePath(window.location.pathname)
+}
+
+function goToWorkspace() {
+  window.history.pushState({}, '', '/')
+  syncRoute()
+}
+
+function navigateTo(path) {
+  window.history.pushState({}, '', path)
+  syncRoute()
+}
 
 async function signInWithGoogle() {
   authError.value = ''
@@ -307,20 +440,78 @@ function formatBytes(bytes) {
           Sign in with Google
         </button>
         <button v-else class="button" type="button" @click="signOut">Sign out</button>
+        <nav class="legal-nav" aria-label="Legal pages">
+          <a href="/terms" @click.prevent="navigateTo('/terms')">Terms</a>
+          <a href="/eula" @click.prevent="navigateTo('/eula')">EULA</a>
+        </nav>
       </div>
     </header>
 
-    <section v-if="!isSupabaseConfigured" class="setup-banner">
+    <section v-if="isOauthConsentRoute" class="consent-page" aria-labelledby="consent-title">
+      <div class="consent-card">
+        <p class="eyebrow">OAuth Consent</p>
+        <h2 id="consent-title">Composition Critique Authorization</h2>
+        <p>
+          This route is implemented for OAuth preview checks. Use Google sign-in to establish a
+          Supabase session, then continue to the upload workspace.
+        </p>
+
+        <dl v-if="oauthQueryParams.length" class="query-list">
+          <template v-for="param in oauthQueryParams" :key="param.key">
+            <dt>{{ param.key }}</dt>
+            <dd>{{ param.value }}</dd>
+          </template>
+        </dl>
+
+        <div class="consent-actions">
+          <button
+            v-if="!user"
+            class="button button--primary"
+            type="button"
+            :disabled="!isSupabaseConfigured || !authReady"
+            @click="signInWithGoogle"
+          >
+            Sign in with Google
+          </button>
+          <button class="button" type="button" @click="goToWorkspace">Continue to workspace</button>
+        </div>
+
+        <div class="legal-link-row">
+          <a href="/terms" @click.prevent="navigateTo('/terms')">Terms of Service</a>
+          <a href="/eula" @click.prevent="navigateTo('/eula')">End User License Agreement</a>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="currentLegalPage" class="legal-page" :aria-labelledby="`${currentLegalPage.path.slice(1)}-title`">
+      <article class="legal-card">
+        <p class="eyebrow">Legal</p>
+        <h2 :id="`${currentLegalPage.path.slice(1)}-title`">{{ currentLegalPage.title }}</h2>
+        <p class="legal-updated">Last updated: {{ currentLegalPage.updated }}</p>
+        <p class="legal-intro">{{ currentLegalPage.intro }}</p>
+
+        <section v-for="section in currentLegalPage.sections" :key="section.title" class="legal-section">
+          <h3>{{ section.title }}</h3>
+          <p>{{ section.body }}</p>
+        </section>
+
+        <div class="consent-actions">
+          <button class="button" type="button" @click="goToWorkspace">Back to workspace</button>
+        </div>
+      </article>
+    </section>
+
+    <section v-if="!isSupabaseConfigured && !isLegalRoute" class="setup-banner">
       <strong>Supabase environment missing.</strong>
       <span>{{ supabaseConfigMessage }}</span>
     </section>
 
-    <section v-if="authError" class="setup-banner setup-banner--error">
+    <section v-if="authError && !isLegalRoute" class="setup-banner setup-banner--error">
       <strong>Auth error.</strong>
       <span>{{ authError }}</span>
     </section>
 
-    <div class="workspace">
+    <div v-if="!isOauthConsentRoute && !isLegalRoute" class="workspace">
       <section class="upload-panel" aria-labelledby="upload-title">
         <div class="section-heading">
           <div>

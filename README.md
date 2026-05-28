@@ -41,3 +41,17 @@ Use [src/supabase_config.md](src/supabase_config.md) as the sample backend setup
 - create the composition metadata tables
 - enable Row Level Security
 - add Storage policies for `user/{owner_id}/...` paths
+
+## OAuth Preview Route
+
+The app implements `/oauth/consent` for provider preview checks. Vercel rewrites
+that path to the Vue app through `vercel.json`, and the app normalizes double
+slashes so `//oauth/consent` reaches the same consent screen.
+
+## Public Legal Routes
+
+The app includes public legal pages for provider review:
+- `/terms` for Terms of Service
+- `/eula` for the End User License Agreement
+
+These are starter templates and should be reviewed before production launch.

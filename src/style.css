@@ -103,6 +103,27 @@ input:disabled {
   flex-wrap: wrap;
 }
 
+.legal-nav,
+.legal-link-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.legal-nav a,
+.legal-link-row a {
+  color: var(--primary-strong);
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.legal-nav a:hover,
+.legal-link-row a:hover {
+  text-decoration: underline;
+}
+
 .status-pill {
   display: inline-flex;
   min-height: 32px;
@@ -185,6 +206,125 @@ input:disabled {
   max-width: 1320px;
   margin: 0 auto;
   align-items: start;
+}
+
+.consent-page {
+  display: grid;
+  min-height: calc(100svh - 180px);
+  place-items: center;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.consent-card {
+  width: min(620px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 28px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.consent-card h2,
+.consent-card p {
+  margin: 0;
+}
+
+.consent-card h2 {
+  font-size: 1.6rem;
+  letter-spacing: 0;
+}
+
+.consent-card p {
+  margin-top: 14px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.legal-link-row {
+  margin-top: 18px;
+}
+
+.query-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 18px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfbf8;
+}
+
+.query-list dt {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.query-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.legal-page {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.legal-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 30px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.legal-card h2,
+.legal-card h3,
+.legal-card p {
+  margin: 0;
+}
+
+.legal-card h2 {
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+  letter-spacing: 0;
+}
+
+.legal-updated {
+  margin-top: 8px !important;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.legal-intro {
+  margin-top: 20px !important;
+  color: var(--text);
+  font-size: 1.04rem;
+  line-height: 1.65;
+}
+
+.legal-section {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+
+.legal-section h3 {
+  font-size: 1.05rem;
+  letter-spacing: 0;
+}
+
+.legal-section p {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.65;
 }
 
 .upload-panel,
@@ -415,6 +555,11 @@ input:disabled {
 
   .file-actions {
     justify-content: space-between;
+  }
+
+  .legal-card,
+  .consent-card {
+    padding: 20px;
   }
 
   .button {
