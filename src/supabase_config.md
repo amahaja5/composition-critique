@@ -39,10 +39,15 @@ skip_nonce_check = false
 Google OAuth setup
 - Authorized JavaScript origins:
   - `http://localhost:5173`
+  - `http://127.0.0.1:5173`
   - production app origin
-- Authorized redirect URIs:
+- Google Cloud authorized redirect URIs:
   - local Supabase: `http://127.0.0.1:54321/auth/v1/callback`
   - hosted Supabase callback URL from the Supabase Google provider settings
+- Supabase Auth redirect URLs:
+  - `http://localhost:5173/auth/callback`
+  - `http://127.0.0.1:5173/auth/callback`
+  - `{production_app_origin}/auth/callback`
 - Public policy URLs for provider review:
   - Terms of Service: `{app_origin}/terms`
   - EULA: `{app_origin}/eula`
@@ -68,6 +73,7 @@ For hosted Supabase:
    redirect URI.
 6. Add the app origin, such as `http://localhost:5173`, as an authorized
    JavaScript origin in Google Cloud.
+7. Add `{app_origin}/auth/callback` to Supabase Auth redirect URLs.
 
 For local Supabase CLI development:
 1. Set `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET`.
@@ -120,10 +126,12 @@ as long as new signups are allowed in Supabase Auth configuration.
 Auth button logging
 
 The frontend logs Google OAuth button clicks, redirect attempts, session restore
-results, auth state changes, and sign-out events to both a local browser logger
-and the `public.auth_events` table. This is separate from `upload_events`
-because the first OAuth button click happens before Supabase has an
-authenticated `auth.uid()` for user-owned RLS rows.
+success when a session exists, session restore failures, meaningful auth state
+changes, and sign-out events to both a local browser logger and the
+`public.auth_events` table. Empty `INITIAL_SESSION` events with no session are
+filtered out. This is separate from `upload_events` because the first OAuth
+button click happens before Supabase has an authenticated `auth.uid()` for
+user-owned RLS rows.
 
 ```sql
 create extension if not exists pgcrypto;
@@ -224,6 +232,10 @@ create index upload_events_composition_id_idx on public.upload_events(compositio
 create index upload_events_asset_id_idx on public.upload_events(asset_id);
 create index auth_events_owner_id_idx on public.auth_events(owner_id);
 create index auth_events_created_at_idx on public.auth_events(created_at desc);
+
+grant usage on type public.auth_event_type to anon, authenticated;
+grant insert on public.auth_events to anon, authenticated;
+grant select on public.auth_events to authenticated;
 ```
 
 Row Level Security
@@ -350,6 +362,8 @@ on public.auth_events
 for select
 to authenticated
 using (owner_id = (select auth.uid()));
+
+notify pgrst, 'reload schema';
 ```
 
 Storage policies

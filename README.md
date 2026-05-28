@@ -42,11 +42,28 @@ Use [src/supabase_config.md](src/supabase_config.md) as the sample backend setup
 - enable Row Level Security
 - add Storage policies for `user/{owner_id}/...` paths
 
+For auth button logging, run
+[supabase/migrations/20260528152000_create_auth_events.sql](supabase/migrations/20260528152000_create_auth_events.sql)
+in the Supabase SQL editor or through the Supabase CLI. This creates
+`public.auth_events`, grants API access, and reloads the PostgREST schema cache.
+
 ## OAuth Preview Route
 
 The app implements `/oauth/consent` for provider preview checks. Vercel rewrites
 that path to the Vue app through `vercel.json`, and the app normalizes double
 slashes so `//oauth/consent` reaches the same consent screen.
+
+## Auth Callback Route
+
+Google OAuth returns to Supabase first, then Supabase redirects the browser to
+`/auth/callback` on this app. Add both local and production callback URLs to
+Supabase Auth redirect URLs:
+
+```txt
+http://127.0.0.1:5173/auth/callback
+http://localhost:5173/auth/callback
+https://your-vercel-domain.vercel.app/auth/callback
+```
 
 ## Public Legal Routes
 

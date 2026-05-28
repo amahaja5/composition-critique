@@ -8,10 +8,12 @@ Primary auth flow
 2. Supabase Auth redirects the user through Google OAuth.
 3. Supabase creates the authenticated user if the Google account is new, or
    retrieves the existing user if the account has signed in before.
-4. The Vue app receives the active Supabase session.
-5. The app uses the Supabase user id as owner_id for compositions, assets, and
+4. Supabase redirects back to the Vue app at `/auth/callback`.
+5. The callback route restores the active Supabase session and returns the user
+   to the workspace.
+6. The app uses the Supabase user id as owner_id for compositions, assets, and
    upload events.
-6. Postgres Row Level Security and Supabase Storage policies enforce ownership.
+7. Postgres Row Level Security and Supabase Storage policies enforce ownership.
 
 Non-goals
 - Do not build a custom username/password auth system.
@@ -104,19 +106,33 @@ The app should have a small auth state layer that exposes:
 Upload screens should require an authenticated user before file selection or
 upload begins.
 
+Callback route
+Use `/auth/callback` as the app-side OAuth return route:
+
+```txt
+{app_origin}/auth/callback
+```
+
+Google Cloud should still use the Supabase callback URL, not the app callback
+URL. Supabase receives the Google callback first, then redirects to the app
+callback route.
+
 Auth logging
 The app should log auth button activity and Supabase session state changes to a
 local browser logger and `public.auth_events` in Supabase for debugging. This
 logger should include:
 - Google OAuth button clicks
 - OAuth redirect attempts
-- session restore success or failure
-- Supabase auth state change events
+- session restore success when a session exists
+- session restore failures
+- meaningful Supabase auth state change events such as signed in and signed out
 - sign out attempts and results
 
 The auth logger should not store access tokens, refresh tokens, or raw OAuth
 provider payloads. `auth_events` allows anonymous inserts because the first
-Google button click happens before a user exists in the current session.
+Google button click happens before a user exists in the current session. Empty
+page-load events such as `INITIAL_SESSION` with no session should not be shown
+or written as diagnostic events.
 
 Unauthenticated behavior
 If there is no active session:

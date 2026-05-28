@@ -1,741 +1,887 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { isSupabaseConfigured, supabase, supabaseConfigMessage } from './lib/supabase'
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
-  ACCEPTED_UPLOAD_TYPES,
-  buildStoragePath,
-  getAssetType,
-  getUploadMimeType,
-  safeFilename,
-  validateCompositionFile,
-} from './lib/uploads'
-import authDoc from './auth.md?raw'
-import supabaseConfigDoc from './supabase_config.md?raw'
-import uploadButtonDoc from './upload_button.md?raw'
+    isSupabaseConfigured,
+    supabase,
+    supabaseConfigMessage,
+} from "./lib/supabase";
+import {
+    ACCEPTED_UPLOAD_TYPES,
+    buildStoragePath,
+    getAssetType,
+    getUploadMimeType,
+    safeFilename,
+    validateCompositionFile,
+} from "./lib/uploads";
+import authDoc from "./auth.md?raw";
+import supabaseConfigDoc from "./supabase_config.md?raw";
+import uploadButtonDoc from "./upload_button.md?raw";
 
-const AUTH_LOG_STORAGE_KEY = 'compositionCritique.authLog'
+const AUTH_LOG_STORAGE_KEY = "compositionCritique.authLog";
 
-const authReady = ref(false)
-const session = ref(null)
-const authError = ref('')
-const authLogEntries = ref(loadAuthLogEntries())
-const selectedFiles = ref([])
-const uploadStatus = ref('idle')
-const uploadMessage = ref('')
-const compositionTitle = ref('')
-const activeDoc = ref('upload')
-const lastUpload = ref(null)
-const routePath = ref(normalizePath(window.location.pathname))
+const authReady = ref(false);
+const session = ref(null);
+const authError = ref("");
+const authLogEntries = ref(loadAuthLogEntries());
+const selectedFiles = ref([]);
+const uploadStatus = ref("idle");
+const uploadMessage = ref("");
+const compositionTitle = ref("");
+const activeDoc = ref("upload");
+const lastUpload = ref(null);
+const routePath = ref(normalizePath(window.location.pathname));
 
-let authSubscription = null
+let authSubscription = null;
 
 const docs = [
-  { id: 'upload', label: 'Upload', body: uploadButtonDoc },
-  { id: 'auth', label: 'Auth', body: authDoc },
-  { id: 'supabase', label: 'Supabase', body: supabaseConfigDoc },
-]
+    { id: "upload", label: "Upload", body: uploadButtonDoc },
+    { id: "auth", label: "Auth", body: authDoc },
+    { id: "supabase", label: "Supabase", body: supabaseConfigDoc },
+];
 
 const legalPages = [
-  {
-    path: '/terms',
-    label: 'Terms of Service',
-    title: 'Terms of Service',
-    updated: 'May 28, 2026',
-    intro:
-      'These Terms of Service govern access to and use of Composition Critique, a web application for uploading composition source materials and related metadata for critique workflows.',
-    sections: [
-      {
-        title: 'Eligibility and Accounts',
-        body:
-          'You must be able to form a binding agreement to use the service. You are responsible for the activity that occurs under your account and for keeping your sign-in credentials secure.',
-      },
-      {
-        title: 'Uploaded Content',
-        body:
-          'You retain ownership of PDFs, MusicXML files, metadata, and other materials you upload. You grant Composition Critique a limited license to store, process, display, and transmit that content only as needed to operate and improve the service.',
-      },
-      {
-        title: 'Acceptable Use',
-        body:
-          'Do not upload content you do not have the right to use, malicious files, illegal material, or content that infringes another person\'s rights. Do not attempt to bypass access controls, overload the service, or interfere with other users.',
-      },
-      {
-        title: 'Service Availability',
-        body:
-          'The service may change, pause, or become unavailable from time to time. Features may be modified or discontinued, especially while the product is in development.',
-      },
-      {
-        title: 'No Professional Advice',
-        body:
-          'Composition Critique may help organize materials and critique workflows, but it does not replace professional legal, music publishing, licensing, or business advice.',
-      },
-      {
-        title: 'Termination',
-        body:
-          'Access may be suspended or terminated if these terms are violated or if continued access would create legal, security, or operational risk.',
-      },
-      {
-        title: 'Disclaimers and Liability',
-        body:
-          'The service is provided as is and as available. To the fullest extent permitted by law, Composition Critique disclaims implied warranties and will not be liable for indirect, incidental, special, consequential, or punitive damages.',
-      },
-      {
-        title: 'Contact',
-        body:
-          'Questions about these terms should be sent to the project owner through the support or contact channel published with the deployed service.',
-      },
-    ],
-  },
-  {
-    path: '/eula',
-    label: 'EULA',
-    title: 'End User License Agreement',
-    updated: 'May 28, 2026',
-    intro:
-      'This End User License Agreement describes the limited rights granted to use the Composition Critique application and related software interface.',
-    sections: [
-      {
-        title: 'License Grant',
-        body:
-          'Subject to this agreement, you receive a limited, revocable, non-exclusive, non-transferable license to access and use Composition Critique for lawful composition upload and critique workflows.',
-      },
-      {
-        title: 'Restrictions',
-        body:
-          'You may not copy, modify, reverse engineer, sell, sublicense, rent, or distribute the application except as expressly allowed by law or by written permission from the project owner.',
-      },
-      {
-        title: 'Ownership',
-        body:
-          'The application, design, code, documentation, and service infrastructure are owned by the project owner or its licensors. This agreement does not transfer ownership of the application to you.',
-      },
-      {
-        title: 'Your Materials',
-        body:
-          'You retain ownership of the composition materials you upload. The application may store and process your materials only to provide the service and related functionality.',
-      },
-      {
-        title: 'Third-Party Services',
-        body:
-          'The application may rely on third-party services, including authentication, hosting, storage, and database providers. Your use of those features may also be subject to the third-party provider terms.',
-      },
-      {
-        title: 'Updates',
-        body:
-          'The application may be updated automatically. Updates may add, change, or remove functionality and may be required for continued access.',
-      },
-      {
-        title: 'Termination',
-        body:
-          'This license ends if you stop using the service, if your access is terminated, or if you violate this agreement. After termination, you must stop using the application.',
-      },
-      {
-        title: 'Disclaimer',
-        body:
-          'The application is provided as is without warranties of any kind. To the fullest extent permitted by law, all implied warranties are disclaimed.',
-      },
-    ],
-  },
-]
+    {
+        path: "/terms",
+        label: "Terms of Service",
+        title: "Terms of Service",
+        updated: "May 28, 2026",
+        intro: "These Terms of Service govern access to and use of Composition Critique, a web application for uploading composition source materials and related metadata for critique workflows.",
+        sections: [
+            {
+                title: "Eligibility and Accounts",
+                body: "You must be able to form a binding agreement to use the service. You are responsible for the activity that occurs under your account and for keeping your sign-in credentials secure.",
+            },
+            {
+                title: "Uploaded Content",
+                body: "You retain ownership of PDFs, MusicXML files, metadata, and other materials you upload. You grant Composition Critique a limited license to store, process, display, and transmit that content only as needed to operate and improve the service.",
+            },
+            {
+                title: "Acceptable Use",
+                body: "Do not upload content you do not have the right to use, malicious files, illegal material, or content that infringes another person's rights. Do not attempt to bypass access controls, overload the service, or interfere with other users.",
+            },
+            {
+                title: "Service Availability",
+                body: "The service may change, pause, or become unavailable from time to time. Features may be modified or discontinued, especially while the product is in development.",
+            },
+            {
+                title: "No Professional Advice",
+                body: "Composition Critique may help organize materials and critique workflows, but it does not replace professional legal, music publishing, licensing, or business advice.",
+            },
+            {
+                title: "Termination",
+                body: "Access may be suspended or terminated if these terms are violated or if continued access would create legal, security, or operational risk.",
+            },
+            {
+                title: "Disclaimers and Liability",
+                body: "The service is provided as is and as available. To the fullest extent permitted by law, Composition Critique disclaims implied warranties and will not be liable for indirect, incidental, special, consequential, or punitive damages.",
+            },
+            {
+                title: "Contact",
+                body: "Questions about these terms should be sent to the project owner through the support or contact channel published with the deployed service.",
+            },
+        ],
+    },
+    {
+        path: "/eula",
+        label: "EULA",
+        title: "End User License Agreement",
+        updated: "May 28, 2026",
+        intro: "This End User License Agreement describes the limited rights granted to use the Composition Critique application and related software interface.",
+        sections: [
+            {
+                title: "License Grant",
+                body: "Subject to this agreement, you receive a limited, revocable, non-exclusive, non-transferable license to access and use Composition Critique for lawful composition upload and critique workflows.",
+            },
+            {
+                title: "Restrictions",
+                body: "You may not copy, modify, reverse engineer, sell, sublicense, rent, or distribute the application except as expressly allowed by law or by written permission from the project owner.",
+            },
+            {
+                title: "Ownership",
+                body: "The application, design, code, documentation, and service infrastructure are owned by the project owner or its licensors. This agreement does not transfer ownership of the application to you.",
+            },
+            {
+                title: "Your Materials",
+                body: "You retain ownership of the composition materials you upload. The application may store and process your materials only to provide the service and related functionality.",
+            },
+            {
+                title: "Third-Party Services",
+                body: "The application may rely on third-party services, including authentication, hosting, storage, and database providers. Your use of those features may also be subject to the third-party provider terms.",
+            },
+            {
+                title: "Updates",
+                body: "The application may be updated automatically. Updates may add, change, or remove functionality and may be required for continued access.",
+            },
+            {
+                title: "Termination",
+                body: "This license ends if you stop using the service, if your access is terminated, or if you violate this agreement. After termination, you must stop using the application.",
+            },
+            {
+                title: "Disclaimer",
+                body: "The application is provided as is without warranties of any kind. To the fullest extent permitted by law, all implied warranties are disclaimed.",
+            },
+        ],
+    },
+];
 
-const currentDoc = computed(() => docs.find((doc) => doc.id === activeDoc.value) ?? docs[0])
-const user = computed(() => session.value?.user ?? null)
-const isUploading = computed(() => uploadStatus.value === 'uploading')
-const hasSelectionErrors = computed(() => selectedFiles.value.some((item) => item.error))
-const isOauthConsentRoute = computed(() => routePath.value === '/oauth/consent')
-const currentLegalPage = computed(() => legalPages.find((page) => page.path === routePath.value) ?? null)
-const isLegalRoute = computed(() => Boolean(currentLegalPage.value))
+const currentDoc = computed(
+    () => docs.find((doc) => doc.id === activeDoc.value) ?? docs[0],
+);
+const user = computed(() => session.value?.user ?? null);
+const isUploading = computed(() => uploadStatus.value === "uploading");
+const hasSelectionErrors = computed(() =>
+    selectedFiles.value.some((item) => item.error),
+);
+const authCallbackUrl = computed(() => `${window.location.origin}/auth/callback`);
+const isAuthCallbackRoute = computed(() => routePath.value === "/auth/callback");
+const isOauthConsentRoute = computed(
+    () => routePath.value === "/oauth/consent",
+);
+const currentLegalPage = computed(
+    () => legalPages.find((page) => page.path === routePath.value) ?? null,
+);
+const isLegalRoute = computed(() => Boolean(currentLegalPage.value));
 const oauthQueryParams = computed(() => {
-  const params = new URLSearchParams(window.location.search)
-  return Array.from(params.entries()).map(([key, value]) => ({ key, value }))
-})
+    const params = new URLSearchParams(window.location.search);
+    return Array.from(params.entries()).map(([key, value]) => ({ key, value }));
+});
 const canUpload = computed(() => {
-  return (
-    isSupabaseConfigured &&
-    user.value &&
-    selectedFiles.value.length > 0 &&
-    !hasSelectionErrors.value &&
-    !isUploading.value
-  )
-})
+    return (
+        isSupabaseConfigured &&
+        user.value &&
+        selectedFiles.value.length > 0 &&
+        !hasSelectionErrors.value &&
+        !isUploading.value
+    );
+});
 
 onMounted(async () => {
-  window.addEventListener('popstate', syncRoute)
-  logAuthEvent('auth_init_started', {
-    configured: isSupabaseConfigured,
-    path: routePath.value,
-  })
+    window.addEventListener("popstate", syncRoute);
 
-  if (!isSupabaseConfigured) {
-    authReady.value = true
-    logAuthEvent('auth_init_skipped', {
-      reason: 'missing_supabase_environment',
-    })
-    return
-  }
+    if (!isSupabaseConfigured) {
+        authReady.value = true;
+        logAuthEvent("auth_init_skipped", {
+            reason: "missing_supabase_environment",
+        });
+        return;
+    }
 
-  const { data, error } = await supabase.auth.getSession()
-  if (error) {
-    authError.value = error.message
-    logAuthEvent('session_restore_failed', {
-      message: error.message,
-    })
-  } else {
-    session.value = data.session
-    logAuthEvent('session_restored', {
-      hasSession: Boolean(data.session),
-      email: data.session?.user?.email ?? null,
-    })
-  }
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+        authError.value = error.message;
+        logAuthEvent("session_restore_failed", {
+            message: error.message,
+        });
+    } else {
+        session.value = data.session;
+        if (data.session) {
+            logAuthEvent("session_restored", {
+                email: data.session.user?.email ?? null,
+            });
+            if (isAuthCallbackRoute.value) {
+                replaceToWorkspace();
+            }
+        }
+    }
 
-  const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
-    session.value = nextSession
-    authError.value = ''
-    logAuthEvent('auth_state_changed', {
-      event,
-      hasSession: Boolean(nextSession),
-      email: nextSession?.user?.email ?? null,
-    })
-  })
+    const { data: listener } = supabase.auth.onAuthStateChange(
+        (event, nextSession) => {
+            session.value = nextSession;
+            authError.value = "";
+            if (event === "INITIAL_SESSION") {
+                return;
+            }
+            logAuthEvent("auth_state_changed", {
+                event,
+                hasSession: Boolean(nextSession),
+                email: nextSession?.user?.email ?? null,
+            });
+            if (event === "SIGNED_IN" && isAuthCallbackRoute.value) {
+                replaceToWorkspace();
+            }
+        },
+    );
 
-  authSubscription = listener.subscription
-  authReady.value = true
-})
+    authSubscription = listener.subscription;
+    authReady.value = true;
+});
 
 onUnmounted(() => {
-  window.removeEventListener('popstate', syncRoute)
-  authSubscription?.unsubscribe()
-})
+    window.removeEventListener("popstate", syncRoute);
+    authSubscription?.unsubscribe();
+});
 
 function normalizePath(pathname) {
-  const normalized = pathname.replace(/\/{2,}/g, '/').replace(/\/$/, '')
-  return normalized || '/'
+    const normalized = pathname.replace(/\/{2,}/g, "/").replace(/\/$/, "");
+    return normalized || "/";
 }
 
 function syncRoute() {
-  routePath.value = normalizePath(window.location.pathname)
+    routePath.value = normalizePath(window.location.pathname);
 }
 
 function goToWorkspace() {
-  window.history.pushState({}, '', '/')
-  syncRoute()
+    window.history.pushState({}, "", "/");
+    syncRoute();
+}
+
+function replaceToWorkspace() {
+    window.history.replaceState({}, "", "/");
+    syncRoute();
 }
 
 function navigateTo(path) {
-  window.history.pushState({}, '', path)
-  syncRoute()
+    window.history.pushState({}, "", path);
+    syncRoute();
 }
 
 function loadAuthLogEntries() {
-  try {
-    return JSON.parse(window.localStorage.getItem(AUTH_LOG_STORAGE_KEY) ?? '[]')
-  } catch {
-    return []
-  }
+    try {
+        return JSON.parse(
+            window.localStorage.getItem(AUTH_LOG_STORAGE_KEY) ?? "[]",
+        )
+            .filter((entry) => !isNoisyAuthLogEntry(entry))
+            .slice(0, 12);
+    } catch {
+        return [];
+    }
+}
+
+function isNoisyAuthLogEntry(entry) {
+    return (
+        entry?.event === "auth_init_started" ||
+        (entry?.event === "session_restored" &&
+            entry?.details?.hasSession === false) ||
+        (entry?.event === "auth_state_changed" &&
+            entry?.details?.event === "INITIAL_SESSION" &&
+            entry?.details?.hasSession === false)
+    );
 }
 
 function logAuthEvent(event, details = {}) {
-  const entry = {
-    id: crypto.randomUUID(),
-    at: new Date().toISOString(),
-    event,
-    details: sanitizeAuthLogDetails(details),
-  }
+    const entry = {
+        id: crypto.randomUUID(),
+        at: new Date().toISOString(),
+        event,
+        details: sanitizeAuthLogDetails(details),
+    };
 
-  authLogEntries.value = [entry, ...authLogEntries.value].slice(0, 12)
-  try {
-    window.localStorage.setItem(AUTH_LOG_STORAGE_KEY, JSON.stringify(authLogEntries.value))
-  } catch {
-    console.warn('[auth] Unable to persist auth log entry')
-  }
-  console.info('[auth]', event, entry.details)
-  return writeSupabaseAuthEvent(entry)
+    authLogEntries.value = [entry, ...authLogEntries.value].slice(0, 12);
+    try {
+        window.localStorage.setItem(
+            AUTH_LOG_STORAGE_KEY,
+            JSON.stringify(authLogEntries.value),
+        );
+    } catch {
+        console.warn("[auth] Unable to persist auth log entry");
+    }
+    console.info("[auth]", event, entry.details);
+    return writeSupabaseAuthEvent(entry);
 }
 
 function sanitizeAuthLogDetails(details) {
-  return Object.fromEntries(
-    Object.entries(details).filter(([key]) => !key.toLowerCase().includes('token')),
-  )
+    return Object.fromEntries(
+        Object.entries(details).filter(
+            ([key]) => !key.toLowerCase().includes("token"),
+        ),
+    );
 }
 
 function clearAuthLog() {
-  authLogEntries.value = []
-  try {
-    window.localStorage.removeItem(AUTH_LOG_STORAGE_KEY)
-  } catch {
-    console.warn('[auth] Unable to clear persisted auth log')
-  }
+    authLogEntries.value = [];
+    try {
+        window.localStorage.removeItem(AUTH_LOG_STORAGE_KEY);
+    } catch {
+        console.warn("[auth] Unable to clear persisted auth log");
+    }
 }
 
 async function writeSupabaseAuthEvent(entry) {
-  if (!isSupabaseConfigured) {
-    return
-  }
+    if (!isSupabaseConfigured) {
+        return;
+    }
 
-  const { error } = await supabase.from('auth_events').insert({
-    event_type: entry.event,
-    route_path: routePath.value,
-    message: entry.details.message ?? null,
-    metadata_json: entry.details,
-  })
+    const { error } = await supabase.from("auth_events").insert({
+        event_type: entry.event,
+        route_path: routePath.value,
+        message: entry.details.message ?? null,
+        metadata_json: entry.details,
+    });
 
-  if (error) {
-    console.warn('[auth] Unable to write auth event to Supabase', error)
-  }
+    if (error) {
+        console.warn("[auth] Unable to write auth event to Supabase", error);
+    }
 }
 
 async function continueWithGoogle() {
-  authError.value = ''
-  await logAuthEvent('google_oauth_button_clicked', {
-    redirectTo: window.location.origin,
-    path: routePath.value,
-  })
+    authError.value = "";
+    await logAuthEvent("google_oauth_button_clicked", {
+        redirectTo: authCallbackUrl.value,
+        path: routePath.value,
+    });
 
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: window.location.origin,
-    },
-  })
+    const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+            redirectTo: authCallbackUrl.value,
+        },
+    });
 
-  if (error) {
-    authError.value = error.message
-    logAuthEvent('google_oauth_start_failed', {
-      message: error.message,
-    })
-    return
-  }
+    if (error) {
+        authError.value = error.message;
+        logAuthEvent("google_oauth_start_failed", {
+            message: error.message,
+        });
+        return;
+    }
 
-  logAuthEvent('google_oauth_redirect_requested', {
-    redirectTo: window.location.origin,
-  })
+    logAuthEvent("google_oauth_redirect_requested", {
+        redirectTo: authCallbackUrl.value,
+    });
 }
 
 async function signOut() {
-  authError.value = ''
-  await logAuthEvent('sign_out_requested', {
-    email: user.value?.email ?? null,
-  })
-  const { error } = await supabase.auth.signOut()
+    authError.value = "";
+    await logAuthEvent("sign_out_requested", {
+        email: user.value?.email ?? null,
+    });
+    const { error } = await supabase.auth.signOut();
 
-  if (error) {
-    authError.value = error.message
-    logAuthEvent('sign_out_failed', {
-      message: error.message,
-    })
-    return
-  }
+    if (error) {
+        authError.value = error.message;
+        logAuthEvent("sign_out_failed", {
+            message: error.message,
+        });
+        return;
+    }
 
-  logAuthEvent('sign_out_succeeded')
+    logAuthEvent("sign_out_succeeded");
 }
 
 function handleFileSelection(event) {
-  const files = Array.from(event.target.files ?? [])
-  selectedFiles.value = files.map((file) => {
-    const validation = validateCompositionFile(file)
+    const files = Array.from(event.target.files ?? []);
+    selectedFiles.value = files.map((file) => {
+        const validation = validateCompositionFile(file);
 
-    return {
-      id: crypto.randomUUID(),
-      file,
-      assetType: validation.assetType,
-      error: validation.error,
-      status: validation.error ? 'error' : 'ready',
-      storagePath: '',
-    }
-  })
+        return {
+            id: crypto.randomUUID(),
+            file,
+            assetType: validation.assetType,
+            error: validation.error,
+            status: validation.error ? "error" : "ready",
+            storagePath: "",
+        };
+    });
 
-  uploadStatus.value = files.length ? 'ready' : 'idle'
-  uploadMessage.value = ''
-  lastUpload.value = null
-  event.target.value = ''
+    uploadStatus.value = files.length ? "ready" : "idle";
+    uploadMessage.value = "";
+    lastUpload.value = null;
+    event.target.value = "";
 }
 
 function removeSelectedFile(id) {
-  selectedFiles.value = selectedFiles.value.filter((item) => item.id !== id)
-  uploadStatus.value = selectedFiles.value.length ? 'ready' : 'idle'
+    selectedFiles.value = selectedFiles.value.filter((item) => item.id !== id);
+    uploadStatus.value = selectedFiles.value.length ? "ready" : "idle";
 }
 
 function resetUpload() {
-  selectedFiles.value = []
-  uploadStatus.value = 'idle'
-  uploadMessage.value = ''
-  lastUpload.value = null
+    selectedFiles.value = [];
+    uploadStatus.value = "idle";
+    uploadMessage.value = "";
+    lastUpload.value = null;
 }
 
 async function uploadFiles() {
-  if (!canUpload.value || hasSelectionErrors.value) {
-    uploadStatus.value = 'error'
-    uploadMessage.value = hasSelectionErrors.value
-      ? 'Remove unsupported files before uploading.'
-      : 'Sign in and select files before uploading.'
-    return
-  }
-
-  uploadStatus.value = 'uploading'
-  uploadMessage.value = 'Preparing composition.'
-
-  const compositionId = crypto.randomUUID()
-  const ownerId = user.value.id
-  const title = compositionTitle.value.trim() || inferCompositionTitle()
-
-  const compositionResult = await supabase.from('compositions').insert({
-    id: compositionId,
-    title,
-  })
-
-  if (compositionResult.error) {
-    uploadStatus.value = 'error'
-    uploadMessage.value = compositionResult.error.message
-    return
-  }
-
-  const uploaded = []
-  const failed = []
-
-  for (const item of selectedFiles.value) {
-    item.status = 'uploading'
-    uploadMessage.value = `Uploading ${item.file.name}.`
-
-    const assetId = crypto.randomUUID()
-    const assetType = getAssetType(item.file)
-    const filename = safeFilename(item.file.name)
-    const mimeType = getUploadMimeType(item.file, assetType)
-    const storagePath = buildStoragePath(ownerId, compositionId, assetId, filename)
-    item.storagePath = storagePath
-
-    await logUploadEvent({
-      compositionId,
-      eventType: 'upload_started',
-      message: `Started upload for ${item.file.name}`,
-      metadata: {
-        original_filename: item.file.name,
-        asset_type: assetType,
-      },
-    })
-
-    const uploadResult = await supabase.storage.from('composition-assets').upload(storagePath, item.file, {
-      cacheControl: '3600',
-      contentType: mimeType,
-      upsert: false,
-    })
-
-    if (uploadResult.error) {
-      item.status = 'error'
-      item.error = uploadResult.error.message
-      failed.push(item)
-      await logUploadEvent({
-        compositionId,
-        eventType: 'upload_failed',
-        message: uploadResult.error.message,
-        metadata: {
-          original_filename: item.file.name,
-          storage_path: storagePath,
-        },
-      })
-      continue
+    if (!canUpload.value || hasSelectionErrors.value) {
+        uploadStatus.value = "error";
+        uploadMessage.value = hasSelectionErrors.value
+            ? "Remove unsupported files before uploading."
+            : "Sign in and select files before uploading.";
+        return;
     }
 
-    const assetResult = await supabase.from('composition_assets').insert({
-      id: assetId,
-      composition_id: compositionId,
-      asset_type: assetType,
-      original_filename: item.file.name,
-      storage_path: storagePath,
-      mime_type: mimeType,
-      byte_size: item.file.size,
-      upload_status: 'uploaded',
-    })
+    uploadStatus.value = "uploading";
+    uploadMessage.value = "Preparing composition.";
 
-    if (assetResult.error) {
-      item.status = 'error'
-      item.error = assetResult.error.message
-      failed.push(item)
-      await logUploadEvent({
-        compositionId,
-        eventType: 'upload_failed',
-        message: assetResult.error.message,
-        metadata: {
-          original_filename: item.file.name,
-          storage_path: storagePath,
-        },
-      })
-      continue
+    const compositionId = crypto.randomUUID();
+    const ownerId = user.value.id;
+    const title = compositionTitle.value.trim() || inferCompositionTitle();
+
+    const compositionResult = await supabase.from("compositions").insert({
+        id: compositionId,
+        title,
+    });
+
+    if (compositionResult.error) {
+        uploadStatus.value = "error";
+        uploadMessage.value = compositionResult.error.message;
+        return;
     }
 
-    item.status = 'uploaded'
-    uploaded.push(item)
-    await logUploadEvent({
-      assetId,
-      compositionId,
-      eventType: 'upload_succeeded',
-      message: `Uploaded ${item.file.name}`,
-      metadata: {
-        storage_path: storagePath,
-      },
-    })
-  }
+    const uploaded = [];
+    const failed = [];
 
-  lastUpload.value = {
-    compositionId,
-    title,
-    uploaded: uploaded.length,
-    failed: failed.length,
-  }
+    for (const item of selectedFiles.value) {
+        item.status = "uploading";
+        uploadMessage.value = `Uploading ${item.file.name}.`;
 
-  uploadStatus.value = failed.length ? 'error' : 'success'
-  uploadMessage.value = failed.length
-    ? `${uploaded.length} uploaded, ${failed.length} failed.`
-    : `${uploaded.length} file${uploaded.length === 1 ? '' : 's'} uploaded.`
+        const assetId = crypto.randomUUID();
+        const assetType = getAssetType(item.file);
+        const filename = safeFilename(item.file.name);
+        const mimeType = getUploadMimeType(item.file, assetType);
+        const storagePath = buildStoragePath(
+            ownerId,
+            compositionId,
+            assetId,
+            filename,
+        );
+        item.storagePath = storagePath;
+
+        await logUploadEvent({
+            compositionId,
+            eventType: "upload_started",
+            message: `Started upload for ${item.file.name}`,
+            metadata: {
+                original_filename: item.file.name,
+                asset_type: assetType,
+            },
+        });
+
+        const uploadResult = await supabase.storage
+            .from("composition-assets")
+            .upload(storagePath, item.file, {
+                cacheControl: "3600",
+                contentType: mimeType,
+                upsert: false,
+            });
+
+        if (uploadResult.error) {
+            item.status = "error";
+            item.error = uploadResult.error.message;
+            failed.push(item);
+            await logUploadEvent({
+                compositionId,
+                eventType: "upload_failed",
+                message: uploadResult.error.message,
+                metadata: {
+                    original_filename: item.file.name,
+                    storage_path: storagePath,
+                },
+            });
+            continue;
+        }
+
+        const assetResult = await supabase.from("composition_assets").insert({
+            id: assetId,
+            composition_id: compositionId,
+            asset_type: assetType,
+            original_filename: item.file.name,
+            storage_path: storagePath,
+            mime_type: mimeType,
+            byte_size: item.file.size,
+            upload_status: "uploaded",
+        });
+
+        if (assetResult.error) {
+            item.status = "error";
+            item.error = assetResult.error.message;
+            failed.push(item);
+            await logUploadEvent({
+                compositionId,
+                eventType: "upload_failed",
+                message: assetResult.error.message,
+                metadata: {
+                    original_filename: item.file.name,
+                    storage_path: storagePath,
+                },
+            });
+            continue;
+        }
+
+        item.status = "uploaded";
+        uploaded.push(item);
+        await logUploadEvent({
+            assetId,
+            compositionId,
+            eventType: "upload_succeeded",
+            message: `Uploaded ${item.file.name}`,
+            metadata: {
+                storage_path: storagePath,
+            },
+        });
+    }
+
+    lastUpload.value = {
+        compositionId,
+        title,
+        uploaded: uploaded.length,
+        failed: failed.length,
+    };
+
+    uploadStatus.value = failed.length ? "error" : "success";
+    uploadMessage.value = failed.length
+        ? `${uploaded.length} uploaded, ${failed.length} failed.`
+        : `${uploaded.length} file${uploaded.length === 1 ? "" : "s"} uploaded.`;
 }
 
-async function logUploadEvent({ assetId = null, compositionId, eventType, message, metadata = {} }) {
-  const { error } = await supabase.from('upload_events').insert({
-    asset_id: assetId,
-    composition_id: compositionId,
-    event_type: eventType,
+async function logUploadEvent({
+    assetId = null,
+    compositionId,
+    eventType,
     message,
-    metadata_json: metadata,
-  })
+    metadata = {},
+}) {
+    const { error } = await supabase.from("upload_events").insert({
+        asset_id: assetId,
+        composition_id: compositionId,
+        event_type: eventType,
+        message,
+        metadata_json: metadata,
+    });
 
-  if (error) {
-    console.warn('Unable to write upload event', error)
-  }
+    if (error) {
+        console.warn("Unable to write upload event", error);
+    }
 }
 
 function inferCompositionTitle() {
-  const firstFile = selectedFiles.value[0]?.file?.name ?? 'Untitled composition'
-  return firstFile.replace(/\.[^.]+$/, '') || 'Untitled composition'
+    const firstFile =
+        selectedFiles.value[0]?.file?.name ?? "Untitled composition";
+    return firstFile.replace(/\.[^.]+$/, "") || "Untitled composition";
 }
 
 function formatBytes(bytes) {
-  if (!bytes) return '0 B'
+    if (!bytes) return "0 B";
 
-  const units = ['B', 'KB', 'MB', 'GB']
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const value = bytes / 1024 ** exponent
+    const units = ["B", "KB", "MB", "GB"];
+    const exponent = Math.min(
+        Math.floor(Math.log(bytes) / Math.log(1024)),
+        units.length - 1,
+    );
+    const value = bytes / 1024 ** exponent;
 
-  return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`
+    return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
 }
 </script>
 
 <template>
-  <main class="app-shell">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">Composition Critique</p>
-        <h1>Score Upload Workspace</h1>
-      </div>
+    <main class="app-shell">
+        <header class="topbar">
+            <div>
+                <p class="eyebrow">Composition Critique</p>
+                <h1>Score Upload Workspace</h1>
+            </div>
 
-      <div class="auth-panel">
-        <span v-if="!authReady" class="status-pill">Restoring session</span>
-        <span v-else-if="user" class="status-pill status-pill--success">{{ user.email }}</span>
-        <span v-else class="status-pill">Signed out</span>
+            <div class="auth-panel">
+                <span v-if="!authReady" class="status-pill"
+                    >Restoring session</span
+                >
+                <span
+                    v-else-if="user"
+                    class="status-pill status-pill--success"
+                    >{{ user.email }}</span
+                >
+                <span v-else class="status-pill">Signed out</span>
 
-        <button
-          v-if="!user"
-          class="button button--primary"
-          type="button"
-          :disabled="!isSupabaseConfigured || !authReady"
-          @click="continueWithGoogle"
+                <button
+                    v-if="!user"
+                    class="button button--primary"
+                    type="button"
+                    :disabled="!isSupabaseConfigured || !authReady"
+                    @click="continueWithGoogle"
+                >
+                    Login with Google
+                </button>
+                <button v-else class="button" type="button" @click="signOut">
+                    Sign out
+                </button>
+                <nav class="legal-nav" aria-label="Legal pages">
+                    <a href="/terms" @click.prevent="navigateTo('/terms')"
+                        >Terms</a
+                    >
+                    <a href="/eula" @click.prevent="navigateTo('/eula')"
+                        >EULA</a
+                    >
+                </nav>
+            </div>
+        </header>
+
+        <section
+            v-if="isOauthConsentRoute"
+            class="consent-page"
+            aria-labelledby="consent-title"
         >
-          Continue with Google
-        </button>
-        <p v-if="!user" class="auth-helper">New users are created automatically after Google approval.</p>
-        <button v-else class="button" type="button" @click="signOut">Sign out</button>
-        <nav class="legal-nav" aria-label="Legal pages">
-          <a href="/terms" @click.prevent="navigateTo('/terms')">Terms</a>
-          <a href="/eula" @click.prevent="navigateTo('/eula')">EULA</a>
-        </nav>
-      </div>
-    </header>
+            <div class="consent-card">
+                <p class="eyebrow">OAuth Consent</p>
+                <h2 id="consent-title">Composition Critique Authorization</h2>
+                <p>
+                    This route is implemented for OAuth preview checks. Continue
+                    with Google to create or restore a Supabase session, then
+                    continue to the upload workspace.
+                </p>
 
-    <section v-if="isOauthConsentRoute" class="consent-page" aria-labelledby="consent-title">
-      <div class="consent-card">
-        <p class="eyebrow">OAuth Consent</p>
-        <h2 id="consent-title">Composition Critique Authorization</h2>
-        <p>
-          This route is implemented for OAuth preview checks. Continue with Google to create or
-          restore a Supabase session, then continue to the upload workspace.
-        </p>
+                <dl v-if="oauthQueryParams.length" class="query-list">
+                    <template
+                        v-for="param in oauthQueryParams"
+                        :key="param.key"
+                    >
+                        <dt>{{ param.key }}</dt>
+                        <dd>{{ param.value }}</dd>
+                    </template>
+                </dl>
 
-        <dl v-if="oauthQueryParams.length" class="query-list">
-          <template v-for="param in oauthQueryParams" :key="param.key">
-            <dt>{{ param.key }}</dt>
-            <dd>{{ param.value }}</dd>
-          </template>
-        </dl>
+                <div class="consent-actions">
+                    <button
+                        v-if="!user"
+                        class="button button--primary"
+                        type="button"
+                        :disabled="!isSupabaseConfigured || !authReady"
+                        @click="continueWithGoogle"
+                    >
+                        Continue with Google
+                    </button>
+                    <button class="button" type="button" @click="goToWorkspace">
+                        Continue to workspace
+                    </button>
+                </div>
 
-        <div class="consent-actions">
-          <button
-            v-if="!user"
-            class="button button--primary"
-            type="button"
-            :disabled="!isSupabaseConfigured || !authReady"
-            @click="continueWithGoogle"
-          >
-            Continue with Google
-          </button>
-          <button class="button" type="button" @click="goToWorkspace">Continue to workspace</button>
-        </div>
-
-        <div class="legal-link-row">
-          <a href="/terms" @click.prevent="navigateTo('/terms')">Terms of Service</a>
-          <a href="/eula" @click.prevent="navigateTo('/eula')">End User License Agreement</a>
-        </div>
-      </div>
-    </section>
-
-    <section v-if="currentLegalPage" class="legal-page" :aria-labelledby="`${currentLegalPage.path.slice(1)}-title`">
-      <article class="legal-card">
-        <p class="eyebrow">Legal</p>
-        <h2 :id="`${currentLegalPage.path.slice(1)}-title`">{{ currentLegalPage.title }}</h2>
-        <p class="legal-updated">Last updated: {{ currentLegalPage.updated }}</p>
-        <p class="legal-intro">{{ currentLegalPage.intro }}</p>
-
-        <section v-for="section in currentLegalPage.sections" :key="section.title" class="legal-section">
-          <h3>{{ section.title }}</h3>
-          <p>{{ section.body }}</p>
+                <div class="legal-link-row">
+                    <a href="/terms" @click.prevent="navigateTo('/terms')"
+                        >Terms of Service</a
+                    >
+                    <a href="/eula" @click.prevent="navigateTo('/eula')"
+                        >End User License Agreement</a
+                    >
+                </div>
+            </div>
         </section>
 
-        <div class="consent-actions">
-          <button class="button" type="button" @click="goToWorkspace">Back to workspace</button>
-        </div>
-      </article>
-    </section>
+        <section
+            v-if="isAuthCallbackRoute"
+            class="consent-page"
+            aria-labelledby="auth-callback-title"
+        >
+            <div class="consent-card">
+                <p class="eyebrow">Authentication</p>
+                <h2 id="auth-callback-title">Completing Google sign-in</h2>
+                <p>
+                    Supabase is restoring your session. You will be sent back to
+                    the workspace once the session is ready.
+                </p>
 
-    <section v-if="!isSupabaseConfigured && !isLegalRoute" class="setup-banner">
-      <strong>Supabase environment missing.</strong>
-      <span>{{ supabaseConfigMessage }}</span>
-    </section>
-
-    <section v-if="authError && !isLegalRoute" class="setup-banner setup-banner--error">
-      <strong>Auth error.</strong>
-      <span>{{ authError }}</span>
-    </section>
-
-    <section v-if="authLogEntries.length && !isLegalRoute" class="auth-log" aria-labelledby="auth-log-title">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Logger</p>
-          <h2 id="auth-log-title">Auth calls</h2>
-        </div>
-        <button class="button" type="button" @click="clearAuthLog">Clear log</button>
-      </div>
-
-      <ol>
-        <li v-for="entry in authLogEntries" :key="entry.id">
-          <code>{{ entry.at }}</code>
-          <strong>{{ entry.event }}</strong>
-          <span>{{ JSON.stringify(entry.details) }}</span>
-        </li>
-      </ol>
-    </section>
-
-    <div v-if="!isOauthConsentRoute && !isLegalRoute" class="workspace">
-      <section class="upload-panel" aria-labelledby="upload-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Upload</p>
-            <h2 id="upload-title">PDF and MusicXML assets</h2>
-          </div>
-          <span class="status-pill">{{ uploadStatus }}</span>
-        </div>
-
-        <label class="field-label" for="composition-title">Composition title</label>
-        <input
-          id="composition-title"
-          v-model="compositionTitle"
-          class="text-input"
-          type="text"
-          placeholder="Untitled composition"
-          :disabled="isUploading"
-        />
-
-        <label class="file-drop" for="composition-files">
-          <span>Choose PDF, MusicXML, XML, or MXL files</span>
-          <small>{{ selectedFiles.length }} selected</small>
-        </label>
-        <input
-          id="composition-files"
-          class="sr-only"
-          type="file"
-          multiple
-          :accept="ACCEPTED_UPLOAD_TYPES"
-          :disabled="!user || isUploading || !isSupabaseConfigured"
-          @change="handleFileSelection"
-        />
-
-        <div v-if="selectedFiles.length" class="file-list">
-          <article
-            v-for="item in selectedFiles"
-            :key="item.id"
-            class="file-row"
-            :class="{ 'file-row--error': item.error }"
-          >
-            <div>
-              <strong>{{ item.file.name }}</strong>
-              <span>{{ item.assetType || 'unsupported' }} | {{ formatBytes(item.file.size) }}</span>
-              <small v-if="item.storagePath">{{ item.storagePath }}</small>
-              <small v-if="item.error" class="error-text">{{ item.error }}</small>
+                <div class="consent-actions">
+                    <button class="button" type="button" @click="goToWorkspace">
+                        Back to workspace
+                    </button>
+                </div>
             </div>
-            <div class="file-actions">
-              <span class="status-pill">{{ item.status }}</span>
-              <button
-                class="icon-button"
-                type="button"
-                :disabled="isUploading"
-                aria-label="Remove file"
-                title="Remove file"
-                @click="removeSelectedFile(item.id)"
-              >
-                X
-              </button>
+        </section>
+
+        <section
+            v-if="currentLegalPage"
+            class="legal-page"
+            :aria-labelledby="`${currentLegalPage.path.slice(1)}-title`"
+        >
+            <article class="legal-card">
+                <p class="eyebrow">Legal</p>
+                <h2 :id="`${currentLegalPage.path.slice(1)}-title`">
+                    {{ currentLegalPage.title }}
+                </h2>
+                <p class="legal-updated">
+                    Last updated: {{ currentLegalPage.updated }}
+                </p>
+                <p class="legal-intro">{{ currentLegalPage.intro }}</p>
+
+                <section
+                    v-for="section in currentLegalPage.sections"
+                    :key="section.title"
+                    class="legal-section"
+                >
+                    <h3>{{ section.title }}</h3>
+                    <p>{{ section.body }}</p>
+                </section>
+
+                <div class="consent-actions">
+                    <button class="button" type="button" @click="goToWorkspace">
+                        Back to workspace
+                    </button>
+                </div>
+            </article>
+        </section>
+
+        <section
+            v-if="!isSupabaseConfigured && !isLegalRoute"
+            class="setup-banner"
+        >
+            <strong>Supabase environment missing.</strong>
+            <span>{{ supabaseConfigMessage }}</span>
+        </section>
+
+        <section
+            v-if="authError && !isLegalRoute"
+            class="setup-banner setup-banner--error"
+        >
+            <strong>Auth error.</strong>
+            <span>{{ authError }}</span>
+        </section>
+
+        <section
+            v-if="authLogEntries.length && !isLegalRoute"
+            class="auth-log"
+            aria-labelledby="auth-log-title"
+        >
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Logger</p>
+                    <h2 id="auth-log-title">Auth calls</h2>
+                </div>
+                <button class="button" type="button" @click="clearAuthLog">
+                    Clear log
+                </button>
             </div>
-          </article>
+
+            <ol>
+                <li v-for="entry in authLogEntries" :key="entry.id">
+                    <code>{{ entry.at }}</code>
+                    <strong>{{ entry.event }}</strong>
+                    <span>{{ JSON.stringify(entry.details) }}</span>
+                </li>
+            </ol>
+        </section>
+
+        <div
+            v-if="!isAuthCallbackRoute && !isOauthConsentRoute && !isLegalRoute"
+            class="workspace"
+        >
+            <section class="upload-panel" aria-labelledby="upload-title">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Upload</p>
+                        <h2 id="upload-title">PDF and MusicXML assets</h2>
+                    </div>
+                    <span class="status-pill">{{ uploadStatus }}</span>
+                </div>
+
+                <label class="field-label" for="composition-title"
+                    >Composition title</label
+                >
+                <input
+                    id="composition-title"
+                    v-model="compositionTitle"
+                    class="text-input"
+                    type="text"
+                    placeholder="Untitled composition"
+                    :disabled="isUploading"
+                />
+
+                <label class="file-drop" for="composition-files">
+                    <span>Choose PDF, MusicXML, XML, or MXL files</span>
+                    <small>{{ selectedFiles.length }} selected</small>
+                </label>
+                <input
+                    id="composition-files"
+                    class="sr-only"
+                    type="file"
+                    multiple
+                    :accept="ACCEPTED_UPLOAD_TYPES"
+                    :disabled="!user || isUploading || !isSupabaseConfigured"
+                    @change="handleFileSelection"
+                />
+
+                <div v-if="selectedFiles.length" class="file-list">
+                    <article
+                        v-for="item in selectedFiles"
+                        :key="item.id"
+                        class="file-row"
+                        :class="{ 'file-row--error': item.error }"
+                    >
+                        <div>
+                            <strong>{{ item.file.name }}</strong>
+                            <span
+                                >{{ item.assetType || "unsupported" }} |
+                                {{ formatBytes(item.file.size) }}</span
+                            >
+                            <small v-if="item.storagePath">{{
+                                item.storagePath
+                            }}</small>
+                            <small v-if="item.error" class="error-text">{{
+                                item.error
+                            }}</small>
+                        </div>
+                        <div class="file-actions">
+                            <span class="status-pill">{{ item.status }}</span>
+                            <button
+                                class="icon-button"
+                                type="button"
+                                :disabled="isUploading"
+                                aria-label="Remove file"
+                                title="Remove file"
+                                @click="removeSelectedFile(item.id)"
+                            >
+                                X
+                            </button>
+                        </div>
+                    </article>
+                </div>
+
+                <div class="action-row">
+                    <button
+                        class="button button--primary"
+                        type="button"
+                        :disabled="!canUpload"
+                        @click="uploadFiles"
+                    >
+                        Upload files
+                    </button>
+                    <button
+                        class="button"
+                        type="button"
+                        :disabled="isUploading"
+                        @click="resetUpload"
+                    >
+                        Clear
+                    </button>
+                </div>
+
+                <p
+                    v-if="uploadMessage"
+                    class="upload-message"
+                    :class="{ 'error-text': uploadStatus === 'error' }"
+                >
+                    {{ uploadMessage }}
+                </p>
+
+                <div v-if="lastUpload" class="result-strip">
+                    <span>{{ lastUpload.title }}</span>
+                    <code>{{ lastUpload.compositionId }}</code>
+                </div>
+            </section>
+
+            <aside class="docs-panel" aria-labelledby="docs-title">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Design Notes</p>
+                        <h2 id="docs-title">{{ currentDoc.label }}</h2>
+                    </div>
+                </div>
+
+                <div class="tabs" role="tablist" aria-label="Design documents">
+                    <button
+                        v-for="doc in docs"
+                        :key="doc.id"
+                        class="tab-button"
+                        :class="{ 'tab-button--active': activeDoc === doc.id }"
+                        type="button"
+                        role="tab"
+                        :aria-selected="activeDoc === doc.id"
+                        @click="activeDoc = doc.id"
+                    >
+                        {{ doc.label }}
+                    </button>
+                </div>
+
+                <pre class="doc-view">{{ currentDoc.body }}</pre>
+            </aside>
         </div>
-
-        <div class="action-row">
-          <button class="button button--primary" type="button" :disabled="!canUpload" @click="uploadFiles">
-            Upload files
-          </button>
-          <button class="button" type="button" :disabled="isUploading" @click="resetUpload">Clear</button>
-        </div>
-
-        <p v-if="uploadMessage" class="upload-message" :class="{ 'error-text': uploadStatus === 'error' }">
-          {{ uploadMessage }}
-        </p>
-
-        <div v-if="lastUpload" class="result-strip">
-          <span>{{ lastUpload.title }}</span>
-          <code>{{ lastUpload.compositionId }}</code>
-        </div>
-      </section>
-
-      <aside class="docs-panel" aria-labelledby="docs-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Design Notes</p>
-            <h2 id="docs-title">{{ currentDoc.label }}</h2>
-          </div>
-        </div>
-
-        <div class="tabs" role="tablist" aria-label="Design documents">
-          <button
-            v-for="doc in docs"
-            :key="doc.id"
-            class="tab-button"
-            :class="{ 'tab-button--active': activeDoc === doc.id }"
-            type="button"
-            role="tab"
-            :aria-selected="activeDoc === doc.id"
-            @click="activeDoc = doc.id"
-          >
-            {{ doc.label }}
-          </button>
-        </div>
-
-        <pre class="doc-view">{{ currentDoc.body }}</pre>
-      </aside>
-    </div>
-  </main>
+    </main>
 </template>
