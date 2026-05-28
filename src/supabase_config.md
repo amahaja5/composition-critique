@@ -60,7 +60,8 @@ values (
     'application/xml',
     'text/xml',
     'application/vnd.recordare.musicxml+xml',
-    'application/vnd.recordare.musicxml'
+    'application/vnd.recordare.musicxml',
+    'application/vnd.recordare.musicxml-compressed'
   ]
 )
 on conflict (id) do update set
@@ -349,6 +350,14 @@ if (userError) throw userError
 const ownerId = userData.user.id
 const compositionId = crypto.randomUUID()
 const assetId = crypto.randomUUID()
+const assetType = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'musicxml'
+const mimeType = file.type || (
+  file.name.toLowerCase().endsWith('.mxl')
+    ? 'application/vnd.recordare.musicxml-compressed'
+    : assetType === 'pdf'
+      ? 'application/pdf'
+      : 'application/xml'
+)
 const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
 const storagePath = `user/${ownerId}/compositions/${compositionId}/${assetId}/${safeFilename}`
 
@@ -362,7 +371,7 @@ const { error: uploadError } = await supabase.storage
   .upload(storagePath, file, {
     cacheControl: '3600',
     upsert: false,
-    contentType: file.type,
+    contentType: mimeType,
   })
 
 if (uploadError) throw uploadError
@@ -370,10 +379,10 @@ if (uploadError) throw uploadError
 await supabase.from('composition_assets').insert({
   id: assetId,
   composition_id: compositionId,
-  asset_type: file.type === 'application/pdf' ? 'pdf' : 'musicxml',
+  asset_type: assetType,
   original_filename: file.name,
   storage_path: storagePath,
-  mime_type: file.type,
+  mime_type: mimeType,
   byte_size: file.size,
   upload_status: 'uploaded',
 })

@@ -1,30 +1,43 @@
 # Composition Critique
 
-Vue application for composition critique workflows.
+Vue app for authenticated composition uploads and critique workflows.
 
-Current design notes cover:
+The app currently wires:
 - Google OAuth through Supabase Auth
-- PDF and MusicXML uploads
-- Supabase Storage for file blobs
-- Postgres metadata, ownership, and upload events
-- Row Level Security and Storage policies
+- PDF, MusicXML, XML, and MXL file selection
+- Supabase Storage uploads to the `composition-assets` bucket
+- Postgres inserts for `compositions`, `composition_assets`, and `upload_events`
+- in-app reference panels for the auth, upload, and Supabase design docs
+
+## Environment
+
+Create `.env.local` from `.env.example`:
+
+```sh
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
+```
+
+The browser app must never receive a Supabase service role key.
 
 ## Development
 
-Install dependencies:
-
 ```sh
 npm install
-```
-
-Run the Vite dev server:
-
-```sh
 npm run dev
 ```
 
-Build for production:
+## Build
 
 ```sh
 npm run build
 ```
+
+## Supabase Setup
+
+Use [src/supabase_config.md](src/supabase_config.md) as the sample backend setup:
+- enable Google OAuth
+- create the private `composition-assets` bucket
+- create the composition metadata tables
+- enable Row Level Security
+- add Storage policies for `user/{owner_id}/...` paths

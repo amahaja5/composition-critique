@@ -1,42 +1,430 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { isSupabaseConfigured, supabase, supabaseConfigMessage } from './lib/supabase'
+import {
+  ACCEPTED_UPLOAD_TYPES,
+  buildStoragePath,
+  getAssetType,
+  getUploadMimeType,
+  safeFilename,
+  validateCompositionFile,
+} from './lib/uploads'
+import authDoc from './auth.md?raw'
+import supabaseConfigDoc from './supabase_config.md?raw'
+import uploadButtonDoc from './upload_button.md?raw'
 
-const remaining = ref('Loading...')
-let interval = null
+const authReady = ref(false)
+const session = ref(null)
+const authError = ref('')
+const selectedFiles = ref([])
+const uploadStatus = ref('idle')
+const uploadMessage = ref('')
+const compositionTitle = ref('')
+const activeDoc = ref('upload')
+const lastUpload = ref(null)
 
-onMounted(async () => {
-  const res = await fetch('/api/target')
-  const { target } = await res.json()
-  const targetMs = new Date(target).getTime()
+let authSubscription = null
 
-  const tick = () => {
-    const diff = targetMs - Date.now()
-    if (diff <= 0) {
-      remaining.value = "It's Friday evening!"
-      clearInterval(interval)
-      return
-    }
-    const d = Math.floor(diff / 86400000)
-    const h = Math.floor((diff % 86400000) / 3600000)
-    const m = Math.floor((diff % 3600000) / 60000)
-    const s = Math.floor((diff % 60000) / 1000)
-    remaining.value = `${d}d ${h}h ${m}m ${s}s`
-  }
-  tick()
-  interval = setInterval(tick, 1000)
+const docs = [
+  { id: 'upload', label: 'Upload', body: uploadButtonDoc },
+  { id: 'auth', label: 'Auth', body: authDoc },
+  { id: 'supabase', label: 'Supabase', body: supabaseConfigDoc },
+]
+
+const currentDoc = computed(() => docs.find((doc) => doc.id === activeDoc.value) ?? docs[0])
+const user = computed(() => session.value?.user ?? null)
+const isUploading = computed(() => uploadStatus.value === 'uploading')
+const hasSelectionErrors = computed(() => selectedFiles.value.some((item) => item.error))
+const canUpload = computed(() => {
+  return (
+    isSupabaseConfigured &&
+    user.value &&
+    selectedFiles.value.length > 0 &&
+    !hasSelectionErrors.value &&
+    !isUploading.value
+  )
 })
 
-onUnmounted(() => clearInterval(interval))
+onMounted(async () => {
+  if (!isSupabaseConfigured) {
+    authReady.value = true
+    return
+  }
+
+  const { data, error } = await supabase.auth.getSession()
+  if (error) {
+    authError.value = error.message
+  } else {
+    session.value = data.session
+  }
+
+  const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    session.value = nextSession
+    authError.value = ''
+  })
+
+  authSubscription = listener.subscription
+  authReady.value = true
+})
+
+onUnmounted(() => {
+  authSubscription?.unsubscribe()
+})
+
+async function signInWithGoogle() {
+  authError.value = ''
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin,
+    },
+  })
+
+  if (error) {
+    authError.value = error.message
+  }
+}
+
+async function signOut() {
+  authError.value = ''
+  const { error } = await supabase.auth.signOut()
+
+  if (error) {
+    authError.value = error.message
+  }
+}
+
+function handleFileSelection(event) {
+  const files = Array.from(event.target.files ?? [])
+  selectedFiles.value = files.map((file) => {
+    const validation = validateCompositionFile(file)
+
+    return {
+      id: crypto.randomUUID(),
+      file,
+      assetType: validation.assetType,
+      error: validation.error,
+      status: validation.error ? 'error' : 'ready',
+      storagePath: '',
+    }
+  })
+
+  uploadStatus.value = files.length ? 'ready' : 'idle'
+  uploadMessage.value = ''
+  lastUpload.value = null
+  event.target.value = ''
+}
+
+function removeSelectedFile(id) {
+  selectedFiles.value = selectedFiles.value.filter((item) => item.id !== id)
+  uploadStatus.value = selectedFiles.value.length ? 'ready' : 'idle'
+}
+
+function resetUpload() {
+  selectedFiles.value = []
+  uploadStatus.value = 'idle'
+  uploadMessage.value = ''
+  lastUpload.value = null
+}
+
+async function uploadFiles() {
+  if (!canUpload.value || hasSelectionErrors.value) {
+    uploadStatus.value = 'error'
+    uploadMessage.value = hasSelectionErrors.value
+      ? 'Remove unsupported files before uploading.'
+      : 'Sign in and select files before uploading.'
+    return
+  }
+
+  uploadStatus.value = 'uploading'
+  uploadMessage.value = 'Preparing composition.'
+
+  const compositionId = crypto.randomUUID()
+  const ownerId = user.value.id
+  const title = compositionTitle.value.trim() || inferCompositionTitle()
+
+  const compositionResult = await supabase.from('compositions').insert({
+    id: compositionId,
+    title,
+  })
+
+  if (compositionResult.error) {
+    uploadStatus.value = 'error'
+    uploadMessage.value = compositionResult.error.message
+    return
+  }
+
+  const uploaded = []
+  const failed = []
+
+  for (const item of selectedFiles.value) {
+    item.status = 'uploading'
+    uploadMessage.value = `Uploading ${item.file.name}.`
+
+    const assetId = crypto.randomUUID()
+    const assetType = getAssetType(item.file)
+    const filename = safeFilename(item.file.name)
+    const mimeType = getUploadMimeType(item.file, assetType)
+    const storagePath = buildStoragePath(ownerId, compositionId, assetId, filename)
+    item.storagePath = storagePath
+
+    await logUploadEvent({
+      compositionId,
+      eventType: 'upload_started',
+      message: `Started upload for ${item.file.name}`,
+      metadata: {
+        original_filename: item.file.name,
+        asset_type: assetType,
+      },
+    })
+
+    const uploadResult = await supabase.storage.from('composition-assets').upload(storagePath, item.file, {
+      cacheControl: '3600',
+      contentType: mimeType,
+      upsert: false,
+    })
+
+    if (uploadResult.error) {
+      item.status = 'error'
+      item.error = uploadResult.error.message
+      failed.push(item)
+      await logUploadEvent({
+        compositionId,
+        eventType: 'upload_failed',
+        message: uploadResult.error.message,
+        metadata: {
+          original_filename: item.file.name,
+          storage_path: storagePath,
+        },
+      })
+      continue
+    }
+
+    const assetResult = await supabase.from('composition_assets').insert({
+      id: assetId,
+      composition_id: compositionId,
+      asset_type: assetType,
+      original_filename: item.file.name,
+      storage_path: storagePath,
+      mime_type: mimeType,
+      byte_size: item.file.size,
+      upload_status: 'uploaded',
+    })
+
+    if (assetResult.error) {
+      item.status = 'error'
+      item.error = assetResult.error.message
+      failed.push(item)
+      await logUploadEvent({
+        compositionId,
+        eventType: 'upload_failed',
+        message: assetResult.error.message,
+        metadata: {
+          original_filename: item.file.name,
+          storage_path: storagePath,
+        },
+      })
+      continue
+    }
+
+    item.status = 'uploaded'
+    uploaded.push(item)
+    await logUploadEvent({
+      assetId,
+      compositionId,
+      eventType: 'upload_succeeded',
+      message: `Uploaded ${item.file.name}`,
+      metadata: {
+        storage_path: storagePath,
+      },
+    })
+  }
+
+  lastUpload.value = {
+    compositionId,
+    title,
+    uploaded: uploaded.length,
+    failed: failed.length,
+  }
+
+  uploadStatus.value = failed.length ? 'error' : 'success'
+  uploadMessage.value = failed.length
+    ? `${uploaded.length} uploaded, ${failed.length} failed.`
+    : `${uploaded.length} file${uploaded.length === 1 ? '' : 's'} uploaded.`
+}
+
+async function logUploadEvent({ assetId = null, compositionId, eventType, message, metadata = {} }) {
+  const { error } = await supabase.from('upload_events').insert({
+    asset_id: assetId,
+    composition_id: compositionId,
+    event_type: eventType,
+    message,
+    metadata_json: metadata,
+  })
+
+  if (error) {
+    console.warn('Unable to write upload event', error)
+  }
+}
+
+function inferCompositionTitle() {
+  const firstFile = selectedFiles.value[0]?.file?.name ?? 'Untitled composition'
+  return firstFile.replace(/\.[^.]+$/, '') || 'Untitled composition'
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 B'
+
+  const units = ['B', 'KB', 'MB', 'GB']
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / 1024 ** exponent
+
+  return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`
+}
 </script>
 
 <template>
-  <main>
-    <h1>Managing mischief....</h1>
-    <p class="time">{{ remaining }}</p>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Composition Critique</p>
+        <h1>Score Upload Workspace</h1>
+      </div>
+
+      <div class="auth-panel">
+        <span v-if="!authReady" class="status-pill">Restoring session</span>
+        <span v-else-if="user" class="status-pill status-pill--success">{{ user.email }}</span>
+        <span v-else class="status-pill">Signed out</span>
+
+        <button
+          v-if="!user"
+          class="button button--primary"
+          type="button"
+          :disabled="!isSupabaseConfigured || !authReady"
+          @click="signInWithGoogle"
+        >
+          Sign in with Google
+        </button>
+        <button v-else class="button" type="button" @click="signOut">Sign out</button>
+      </div>
+    </header>
+
+    <section v-if="!isSupabaseConfigured" class="setup-banner">
+      <strong>Supabase environment missing.</strong>
+      <span>{{ supabaseConfigMessage }}</span>
+    </section>
+
+    <section v-if="authError" class="setup-banner setup-banner--error">
+      <strong>Auth error.</strong>
+      <span>{{ authError }}</span>
+    </section>
+
+    <div class="workspace">
+      <section class="upload-panel" aria-labelledby="upload-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Upload</p>
+            <h2 id="upload-title">PDF and MusicXML assets</h2>
+          </div>
+          <span class="status-pill">{{ uploadStatus }}</span>
+        </div>
+
+        <label class="field-label" for="composition-title">Composition title</label>
+        <input
+          id="composition-title"
+          v-model="compositionTitle"
+          class="text-input"
+          type="text"
+          placeholder="Untitled composition"
+          :disabled="isUploading"
+        />
+
+        <label class="file-drop" for="composition-files">
+          <span>Choose PDF, MusicXML, XML, or MXL files</span>
+          <small>{{ selectedFiles.length }} selected</small>
+        </label>
+        <input
+          id="composition-files"
+          class="sr-only"
+          type="file"
+          multiple
+          :accept="ACCEPTED_UPLOAD_TYPES"
+          :disabled="!user || isUploading || !isSupabaseConfigured"
+          @change="handleFileSelection"
+        />
+
+        <div v-if="selectedFiles.length" class="file-list">
+          <article
+            v-for="item in selectedFiles"
+            :key="item.id"
+            class="file-row"
+            :class="{ 'file-row--error': item.error }"
+          >
+            <div>
+              <strong>{{ item.file.name }}</strong>
+              <span>{{ item.assetType || 'unsupported' }} | {{ formatBytes(item.file.size) }}</span>
+              <small v-if="item.storagePath">{{ item.storagePath }}</small>
+              <small v-if="item.error" class="error-text">{{ item.error }}</small>
+            </div>
+            <div class="file-actions">
+              <span class="status-pill">{{ item.status }}</span>
+              <button
+                class="icon-button"
+                type="button"
+                :disabled="isUploading"
+                aria-label="Remove file"
+                title="Remove file"
+                @click="removeSelectedFile(item.id)"
+              >
+                X
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <div class="action-row">
+          <button class="button button--primary" type="button" :disabled="!canUpload" @click="uploadFiles">
+            Upload files
+          </button>
+          <button class="button" type="button" :disabled="isUploading" @click="resetUpload">Clear</button>
+        </div>
+
+        <p v-if="uploadMessage" class="upload-message" :class="{ 'error-text': uploadStatus === 'error' }">
+          {{ uploadMessage }}
+        </p>
+
+        <div v-if="lastUpload" class="result-strip">
+          <span>{{ lastUpload.title }}</span>
+          <code>{{ lastUpload.compositionId }}</code>
+        </div>
+      </section>
+
+      <aside class="docs-panel" aria-labelledby="docs-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Design Notes</p>
+            <h2 id="docs-title">{{ currentDoc.label }}</h2>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Design documents">
+          <button
+            v-for="doc in docs"
+            :key="doc.id"
+            class="tab-button"
+            :class="{ 'tab-button--active': activeDoc === doc.id }"
+            type="button"
+            role="tab"
+            :aria-selected="activeDoc === doc.id"
+            @click="activeDoc = doc.id"
+          >
+            {{ doc.label }}
+          </button>
+        </div>
+
+        <pre class="doc-view">{{ currentDoc.body }}</pre>
+      </aside>
+    </div>
   </main>
 </template>
-
-<style>
-main { font-family: system-ui; text-align: center; margin-top: 20vh; }
-.time { font-size: 3rem; font-variant-numeric: tabular-nums; }
-</style>
