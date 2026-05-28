@@ -4,9 +4,10 @@ primary sign-in method. Auth should support the upload system without rebuilding
 identity, sessions, ownership, or permission checks from scratch.
 
 Primary auth flow
-1. User clicks "Sign in with Google".
+1. User clicks "Continue with Google".
 2. Supabase Auth redirects the user through Google OAuth.
-3. Supabase creates or retrieves the authenticated user.
+3. Supabase creates the authenticated user if the Google account is new, or
+   retrieves the existing user if the account has signed in before.
 4. The Vue app receives the active Supabase session.
 5. The app uses the Supabase user id as owner_id for compositions, assets, and
    upload events.
@@ -35,6 +36,13 @@ Supabase handles:
 User identity
 Use the Supabase auth user id as the canonical user id.
 
+Supabase creates the signed-in user in `auth.users` automatically after Google
+OAuth succeeds. The Vue app becomes signed in from the Supabase Auth session,
+not from a row in an app-owned `users` table.
+
+The same OAuth call handles both signup and signin. Do not check a public
+profile or user table before OAuth to decide whether someone should sign up.
+
 Database records should store:
 - owner_id uuid not null references auth.users(id)
 
@@ -49,6 +57,10 @@ needed for app-specific display fields.
 Optional profile table
 Add a profiles table only if the app needs user-facing metadata beyond what
 Supabase Auth provides.
+
+A profile row is not required to activate sign-in state. If a profile table is
+added later, create it for display fields such as name and avatar, not as the
+source of authentication truth.
 
 profiles
 - id uuid primary key references auth.users(id)
@@ -85,7 +97,7 @@ The app should have a small auth state layer that exposes:
 - current user
 - current session
 - loading state while Supabase restores the session
-- sign in with Google
+- continue with Google
 - sign out
 
 Upload screens should require an authenticated user before file selection or
@@ -93,7 +105,7 @@ upload begins.
 
 Unauthenticated behavior
 If there is no active session:
-- show a sign-in action
+- show a "Continue with Google" action
 - prevent upload attempts
 - avoid creating local-only upload records that cannot be associated with a user
 

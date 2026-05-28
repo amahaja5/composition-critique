@@ -108,6 +108,15 @@ user/{owner_id}/compositions/{composition_id}/{asset_id}/{safe_filename}
 
 Database schema
 
+Google OAuth sign-in itself does not require any public `users` table. Supabase
+Auth automatically stores authenticated users in `auth.users`, and the frontend
+signed-in state comes from the Supabase session. The tables below are for app
+data created after sign-in: compositions, uploaded assets, and upload events.
+
+The app should expose one "Continue with Google" action. That action signs in
+returning users and creates new `auth.users` records for first-time Google users,
+as long as new signups are allowed in Supabase Auth configuration.
+
 ```sql
 create extension if not exists pgcrypto;
 
@@ -354,7 +363,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
 Example auth calls:
 
 ```js
-export async function signInWithGoogle() {
+export async function continueWithGoogle() {
   return supabase.auth.signInWithOAuth({
     provider: 'google',
   })

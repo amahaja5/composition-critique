@@ -204,7 +204,7 @@ function navigateTo(path) {
   syncRoute()
 }
 
-async function signInWithGoogle() {
+async function continueWithGoogle() {
   authError.value = ''
 
   const { error } = await supabase.auth.signInWithOAuth({
@@ -435,10 +435,11 @@ function formatBytes(bytes) {
           class="button button--primary"
           type="button"
           :disabled="!isSupabaseConfigured || !authReady"
-          @click="signInWithGoogle"
+          @click="continueWithGoogle"
         >
-          Sign in with Google
+          Continue with Google
         </button>
+        <p v-if="!user" class="auth-helper">New users are created automatically after Google approval.</p>
         <button v-else class="button" type="button" @click="signOut">Sign out</button>
         <nav class="legal-nav" aria-label="Legal pages">
           <a href="/terms" @click.prevent="navigateTo('/terms')">Terms</a>
@@ -452,8 +453,8 @@ function formatBytes(bytes) {
         <p class="eyebrow">OAuth Consent</p>
         <h2 id="consent-title">Composition Critique Authorization</h2>
         <p>
-          This route is implemented for OAuth preview checks. Use Google sign-in to establish a
-          Supabase session, then continue to the upload workspace.
+          This route is implemented for OAuth preview checks. Continue with Google to create or
+          restore a Supabase session, then continue to the upload workspace.
         </p>
 
         <dl v-if="oauthQueryParams.length" class="query-list">
@@ -469,9 +470,9 @@ function formatBytes(bytes) {
             class="button button--primary"
             type="button"
             :disabled="!isSupabaseConfigured || !authReady"
-            @click="signInWithGoogle"
+            @click="continueWithGoogle"
           >
-            Sign in with Google
+            Continue with Google
           </button>
           <button class="button" type="button" @click="goToWorkspace">Continue to workspace</button>
         </div>
