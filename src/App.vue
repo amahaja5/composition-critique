@@ -13,9 +13,12 @@ import authDoc from './auth.md?raw'
 import supabaseConfigDoc from './supabase_config.md?raw'
 import uploadButtonDoc from './upload_button.md?raw'
 
+const AUTH_LOG_STORAGE_KEY = 'compositionCritique.authLog'
+
 const authReady = ref(false)
 const session = ref(null)
 const authError = ref('')
+const authLogEntries = ref(loadAuthLogEntries())
 const selectedFiles = ref([])
 const uploadStatus = ref('idle')
 const uploadMessage = ref('')
@@ -158,22 +161,41 @@ const canUpload = computed(() => {
 
 onMounted(async () => {
   window.addEventListener('popstate', syncRoute)
+  logAuthEvent('auth_init_started', {
+    configured: isSupabaseConfigured,
+    path: routePath.value,
+  })
 
   if (!isSupabaseConfigured) {
     authReady.value = true
+    logAuthEvent('auth_init_skipped', {
+      reason: 'missing_supabase_environment',
+    })
     return
   }
 
   const { data, error } = await supabase.auth.getSession()
   if (error) {
     authError.value = error.message
+    logAuthEvent('session_restore_failed', {
+      message: error.message,
+    })
   } else {
     session.value = data.session
+    logAuthEvent('session_restored', {
+      hasSession: Boolean(data.session),
+      email: data.session?.user?.email ?? null,
+    })
   }
 
-  const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+  const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
     session.value = nextSession
     authError.value = ''
+    logAuthEvent('auth_state_changed', {
+      event,
+      hasSession: Boolean(nextSession),
+      email: nextSession?.user?.email ?? null,
+    })
   })
 
   authSubscription = listener.subscription
@@ -204,8 +226,70 @@ function navigateTo(path) {
   syncRoute()
 }
 
+function loadAuthLogEntries() {
+  try {
+    return JSON.parse(window.localStorage.getItem(AUTH_LOG_STORAGE_KEY) ?? '[]')
+  } catch {
+    return []
+  }
+}
+
+function logAuthEvent(event, details = {}) {
+  const entry = {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    event,
+    details: sanitizeAuthLogDetails(details),
+  }
+
+  authLogEntries.value = [entry, ...authLogEntries.value].slice(0, 12)
+  try {
+    window.localStorage.setItem(AUTH_LOG_STORAGE_KEY, JSON.stringify(authLogEntries.value))
+  } catch {
+    console.warn('[auth] Unable to persist auth log entry')
+  }
+  console.info('[auth]', event, entry.details)
+  return writeSupabaseAuthEvent(entry)
+}
+
+function sanitizeAuthLogDetails(details) {
+  return Object.fromEntries(
+    Object.entries(details).filter(([key]) => !key.toLowerCase().includes('token')),
+  )
+}
+
+function clearAuthLog() {
+  authLogEntries.value = []
+  try {
+    window.localStorage.removeItem(AUTH_LOG_STORAGE_KEY)
+  } catch {
+    console.warn('[auth] Unable to clear persisted auth log')
+  }
+}
+
+async function writeSupabaseAuthEvent(entry) {
+  if (!isSupabaseConfigured) {
+    return
+  }
+
+  const { error } = await supabase.from('auth_events').insert({
+    event_type: entry.event,
+    route_path: routePath.value,
+    message: entry.details.message ?? null,
+    metadata_json: entry.details,
+  })
+
+  if (error) {
+    console.warn('[auth] Unable to write auth event to Supabase', error)
+  }
+}
+
 async function continueWithGoogle() {
   authError.value = ''
+  await logAuthEvent('google_oauth_button_clicked', {
+    redirectTo: window.location.origin,
+    path: routePath.value,
+  })
 
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -216,16 +300,33 @@ async function continueWithGoogle() {
 
   if (error) {
     authError.value = error.message
+    logAuthEvent('google_oauth_start_failed', {
+      message: error.message,
+    })
+    return
   }
+
+  logAuthEvent('google_oauth_redirect_requested', {
+    redirectTo: window.location.origin,
+  })
 }
 
 async function signOut() {
   authError.value = ''
+  await logAuthEvent('sign_out_requested', {
+    email: user.value?.email ?? null,
+  })
   const { error } = await supabase.auth.signOut()
 
   if (error) {
     authError.value = error.message
+    logAuthEvent('sign_out_failed', {
+      message: error.message,
+    })
+    return
   }
+
+  logAuthEvent('sign_out_succeeded')
 }
 
 function handleFileSelection(event) {
@@ -510,6 +611,24 @@ function formatBytes(bytes) {
     <section v-if="authError && !isLegalRoute" class="setup-banner setup-banner--error">
       <strong>Auth error.</strong>
       <span>{{ authError }}</span>
+    </section>
+
+    <section v-if="authLogEntries.length && !isLegalRoute" class="auth-log" aria-labelledby="auth-log-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Logger</p>
+          <h2 id="auth-log-title">Auth calls</h2>
+        </div>
+        <button class="button" type="button" @click="clearAuthLog">Clear log</button>
+      </div>
+
+      <ol>
+        <li v-for="entry in authLogEntries" :key="entry.id">
+          <code>{{ entry.at }}</code>
+          <strong>{{ entry.event }}</strong>
+          <span>{{ JSON.stringify(entry.details) }}</span>
+        </li>
+      </ol>
     </section>
 
     <div v-if="!isOauthConsentRoute && !isLegalRoute" class="workspace">

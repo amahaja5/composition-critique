@@ -99,9 +99,24 @@ The app should have a small auth state layer that exposes:
 - loading state while Supabase restores the session
 - continue with Google
 - sign out
+- auth call logger for local debugging
 
 Upload screens should require an authenticated user before file selection or
 upload begins.
+
+Auth logging
+The app should log auth button activity and Supabase session state changes to a
+local browser logger and `public.auth_events` in Supabase for debugging. This
+logger should include:
+- Google OAuth button clicks
+- OAuth redirect attempts
+- session restore success or failure
+- Supabase auth state change events
+- sign out attempts and results
+
+The auth logger should not store access tokens, refresh tokens, or raw OAuth
+provider payloads. `auth_events` allows anonymous inserts because the first
+Google button click happens before a user exists in the current session.
 
 Unauthenticated behavior
 If there is no active session:

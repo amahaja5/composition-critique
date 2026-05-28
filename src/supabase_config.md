@@ -117,6 +117,14 @@ The app should expose one "Continue with Google" action. That action signs in
 returning users and creates new `auth.users` records for first-time Google users,
 as long as new signups are allowed in Supabase Auth configuration.
 
+Auth button logging
+
+The frontend logs Google OAuth button clicks, redirect attempts, session restore
+results, auth state changes, and sign-out events to both a local browser logger
+and the `public.auth_events` table. This is separate from `upload_events`
+because the first OAuth button click happens before Supabase has an
+authenticated `auth.uid()` for user-owned RLS rows.
+
 ```sql
 create extension if not exists pgcrypto;
 
@@ -145,6 +153,20 @@ create type public.upload_event_type as enum (
   'upload_started',
   'upload_succeeded',
   'upload_failed'
+);
+
+create type public.auth_event_type as enum (
+  'auth_init_started',
+  'auth_init_skipped',
+  'session_restore_failed',
+  'session_restored',
+  'auth_state_changed',
+  'google_oauth_button_clicked',
+  'google_oauth_start_failed',
+  'google_oauth_redirect_requested',
+  'sign_out_requested',
+  'sign_out_failed',
+  'sign_out_succeeded'
 );
 
 create table public.compositions (
@@ -184,12 +206,24 @@ create table public.upload_events (
   created_at timestamptz not null default now()
 );
 
+create table public.auth_events (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid default auth.uid() references auth.users(id) on delete set null,
+  event_type public.auth_event_type not null,
+  route_path text,
+  message text,
+  metadata_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create index compositions_owner_id_idx on public.compositions(owner_id);
 create index composition_assets_owner_id_idx on public.composition_assets(owner_id);
 create index composition_assets_composition_id_idx on public.composition_assets(composition_id);
 create index upload_events_owner_id_idx on public.upload_events(owner_id);
 create index upload_events_composition_id_idx on public.upload_events(composition_id);
 create index upload_events_asset_id_idx on public.upload_events(asset_id);
+create index auth_events_owner_id_idx on public.auth_events(owner_id);
+create index auth_events_created_at_idx on public.auth_events(created_at desc);
 ```
 
 Row Level Security
@@ -198,6 +232,7 @@ Row Level Security
 alter table public.compositions enable row level security;
 alter table public.composition_assets enable row level security;
 alter table public.upload_events enable row level security;
+alter table public.auth_events enable row level security;
 
 create policy "Users can read their compositions"
 on public.compositions
@@ -300,6 +335,21 @@ with check (
     )
   )
 );
+
+create policy "Clients can create auth diagnostic events"
+on public.auth_events
+for insert
+to anon, authenticated
+with check (
+  ((select auth.uid()) is null and owner_id is null)
+  or owner_id = (select auth.uid())
+);
+
+create policy "Users can read their own auth diagnostic events"
+on public.auth_events
+for select
+to authenticated
+using (owner_id = (select auth.uid()));
 ```
 
 Storage policies
