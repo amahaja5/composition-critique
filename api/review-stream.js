@@ -90,17 +90,18 @@ export default async function handler(req, res) {
     const anthropic = new Anthropic({ apiKey })
     const model = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 
-    sendSse(res, 'delta', { text: '## Technical analysis\n\n' })
+    sendSse(res, 'status', { message: 'Analyzing submitted score.' })
     const technicalReview = await streamAnthropicReview({
       anthropic,
       content: sourceContent,
+      emitDeltas: false,
       model,
       res,
       status: 'Running technical review.',
       system: technicalPrompt,
     })
 
-    sendSse(res, 'delta', { text: '\n\n## Composer-facing review\n\n' })
+    sendSse(res, 'status', { message: 'Writing composer-facing review.' })
     await streamAnthropicReview({
       anthropic,
       content: [
@@ -114,6 +115,7 @@ export default async function handler(req, res) {
           ].join('\n'),
         },
       ],
+      emitDeltas: true,
       model,
       res,
       status: 'Preparing actionable feedback.',
@@ -272,7 +274,15 @@ function hasExtension(filename, extension) {
   return filename?.toLowerCase().endsWith(extension) ?? false
 }
 
-async function streamAnthropicReview({ anthropic, content, model, res, status, system }) {
+async function streamAnthropicReview({
+  anthropic,
+  content,
+  emitDeltas = true,
+  model,
+  res,
+  status,
+  system,
+}) {
   let output = ''
   sendSse(res, 'status', { message: status })
 
@@ -287,7 +297,9 @@ async function streamAnthropicReview({ anthropic, content, model, res, status, s
   for await (const event of stream) {
     if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
       output += event.delta.text
-      sendSse(res, 'delta', { text: event.delta.text })
+      if (emitDeltas) {
+        sendSse(res, 'delta', { text: event.delta.text })
+      }
     }
   }
 

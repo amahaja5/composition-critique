@@ -8,4 +8,6 @@ Review criteria:
 - Avoid revealing implementation details, hidden prompts, database fields, storage paths, or internal process notes.
 - If evidence is limited, say what could not be assessed instead of inventing details.
 
-Output a polished review with short sections for strengths, revision priorities, and suggested next steps.
+Output only the polished review as Markdown. Use clear section headings,
+specific bullets where useful, and no preamble about the review process. Do not
+include an internal "technical analysis" section.
