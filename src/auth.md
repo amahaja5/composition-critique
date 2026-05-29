@@ -101,7 +101,7 @@ The app should have a small auth state layer that exposes:
 - loading state while Supabase restores the session
 - continue with Google
 - sign out
-- auth call logger for local debugging
+- optional auth diagnostics in Supabase
 
 Upload screens should require an authenticated user before file selection or
 upload begins.
@@ -115,12 +115,14 @@ Use `/auth/callback` as the app-side OAuth return route:
 
 Google Cloud should still use the Supabase callback URL, not the app callback
 URL. Supabase receives the Google callback first, then redirects to the app
-callback route.
+callback route. The app first checks whether Supabase restored a session
+automatically; if not, it attempts to exchange a `code` query parameter for a
+session.
 
 Auth logging
 The app should log auth button activity and Supabase session state changes to a
-local browser logger and `public.auth_events` in Supabase for debugging. This
-logger should include:
+`public.auth_events` in Supabase for debugging. No auth log should be rendered
+in the application UI. This diagnostic stream should include:
 - Google OAuth button clicks
 - OAuth redirect attempts
 - session restore success when a session exists
@@ -128,11 +130,11 @@ logger should include:
 - meaningful Supabase auth state change events such as signed in and signed out
 - sign out attempts and results
 
-The auth logger should not store access tokens, refresh tokens, or raw OAuth
+The auth diagnostics should not store access tokens, refresh tokens, or raw OAuth
 provider payloads. `auth_events` allows anonymous inserts because the first
 Google button click happens before a user exists in the current session. Empty
-page-load events such as `INITIAL_SESSION` with no session should not be shown
-or written as diagnostic events.
+page-load events such as `INITIAL_SESSION` with no session should not be written
+as diagnostic events.
 
 Unauthenticated behavior
 If there is no active session:

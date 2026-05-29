@@ -4,7 +4,12 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey)
+const hasPlaceholderConfig =
+  supabaseUrl?.includes('your-project-ref') ||
+  supabaseKey?.includes('your-supabase') ||
+  supabaseKey?.includes('your_key_here')
+
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey && !hasPlaceholderConfig)
 
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseKey, {

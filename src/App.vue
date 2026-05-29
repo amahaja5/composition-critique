@@ -17,12 +17,9 @@ import authDoc from "./auth.md?raw";
 import supabaseConfigDoc from "./supabase_config.md?raw";
 import uploadButtonDoc from "./upload_button.md?raw";
 
-const AUTH_LOG_STORAGE_KEY = "compositionCritique.authLog";
-
 const authReady = ref(false);
 const session = ref(null);
 const authError = ref("");
-const authLogEntries = ref(loadAuthLogEntries());
 const selectedFiles = ref([]);
 const uploadStatus = ref("idle");
 const uploadMessage = ref("");
@@ -181,6 +178,12 @@ onMounted(async () => {
             if (isAuthCallbackRoute.value) {
                 replaceToWorkspace();
             }
+        } else if (isAuthCallbackRoute.value) {
+            const exchangedSession = await exchangeCallbackCodeForSession();
+            if (exchangedSession) {
+                session.value = exchangedSession;
+                replaceToWorkspace();
+            }
         }
     }
 
@@ -235,29 +238,6 @@ function navigateTo(path) {
     syncRoute();
 }
 
-function loadAuthLogEntries() {
-    try {
-        return JSON.parse(
-            window.localStorage.getItem(AUTH_LOG_STORAGE_KEY) ?? "[]",
-        )
-            .filter((entry) => !isNoisyAuthLogEntry(entry))
-            .slice(0, 12);
-    } catch {
-        return [];
-    }
-}
-
-function isNoisyAuthLogEntry(entry) {
-    return (
-        entry?.event === "auth_init_started" ||
-        (entry?.event === "session_restored" &&
-            entry?.details?.hasSession === false) ||
-        (entry?.event === "auth_state_changed" &&
-            entry?.details?.event === "INITIAL_SESSION" &&
-            entry?.details?.hasSession === false)
-    );
-}
-
 function logAuthEvent(event, details = {}) {
     const entry = {
         id: crypto.randomUUID(),
@@ -266,15 +246,6 @@ function logAuthEvent(event, details = {}) {
         details: sanitizeAuthLogDetails(details),
     };
 
-    authLogEntries.value = [entry, ...authLogEntries.value].slice(0, 12);
-    try {
-        window.localStorage.setItem(
-            AUTH_LOG_STORAGE_KEY,
-            JSON.stringify(authLogEntries.value),
-        );
-    } catch {
-        console.warn("[auth] Unable to persist auth log entry");
-    }
     console.info("[auth]", event, entry.details);
     return writeSupabaseAuthEvent(entry);
 }
@@ -287,13 +258,42 @@ function sanitizeAuthLogDetails(details) {
     );
 }
 
-function clearAuthLog() {
-    authLogEntries.value = [];
-    try {
-        window.localStorage.removeItem(AUTH_LOG_STORAGE_KEY);
-    } catch {
-        console.warn("[auth] Unable to clear persisted auth log");
+async function exchangeCallbackCodeForSession() {
+    const params = new URLSearchParams(window.location.search);
+    const callbackError = params.get("error_description") ?? params.get("error");
+
+    if (callbackError) {
+        authError.value = callbackError;
+        logAuthEvent("session_restore_failed", {
+            reason: "auth_callback_error",
+            message: callbackError,
+        });
+        return null;
     }
+
+    const code = params.get("code");
+    if (!code) {
+        logAuthEvent("session_restore_failed", {
+            reason: "auth_callback_missing_session",
+            message: "Auth callback loaded without a restored session or code parameter.",
+        });
+        return null;
+    }
+
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+        authError.value = error.message;
+        logAuthEvent("session_restore_failed", {
+            reason: "code_exchange_failed",
+            message: error.message,
+        });
+        return null;
+    }
+
+    logAuthEvent("session_restored", {
+        email: data.session?.user?.email ?? null,
+    });
+    return data.session;
 }
 
 async function writeSupabaseAuthEvent(entry) {
@@ -723,30 +723,6 @@ function formatBytes(bytes) {
         >
             <strong>Auth error.</strong>
             <span>{{ authError }}</span>
-        </section>
-
-        <section
-            v-if="authLogEntries.length && !isLegalRoute"
-            class="auth-log"
-            aria-labelledby="auth-log-title"
-        >
-            <div class="section-heading">
-                <div>
-                    <p class="eyebrow">Logger</p>
-                    <h2 id="auth-log-title">Auth calls</h2>
-                </div>
-                <button class="button" type="button" @click="clearAuthLog">
-                    Clear log
-                </button>
-            </div>
-
-            <ol>
-                <li v-for="entry in authLogEntries" :key="entry.id">
-                    <code>{{ entry.at }}</code>
-                    <strong>{{ entry.event }}</strong>
-                    <span>{{ JSON.stringify(entry.details) }}</span>
-                </li>
-            </ol>
         </section>
 
         <div

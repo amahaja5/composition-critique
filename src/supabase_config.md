@@ -127,11 +127,21 @@ Auth button logging
 
 The frontend logs Google OAuth button clicks, redirect attempts, session restore
 success when a session exists, session restore failures, meaningful auth state
-changes, and sign-out events to both a local browser logger and the
-`public.auth_events` table. Empty `INITIAL_SESSION` events with no session are
-filtered out. This is separate from `upload_events` because the first OAuth
+changes, and sign-out events to the `public.auth_events` table. These events are
+not shown in the application UI. Empty `INITIAL_SESSION` events with no session
+are filtered out. This is separate from `upload_events` because the first OAuth
 button click happens before Supabase has an authenticated `auth.uid()` for
 user-owned RLS rows.
+
+Troubleshooting signed-in state
+- If the Supabase authorize URL contains `redirect_to=http://127.0.0.1:5173`
+  instead of `redirect_to=http://127.0.0.1:5173/auth/callback`, the browser is
+  using an old auth request or old frontend bundle.
+- If `.env.local` still contains placeholder values such as
+  `your-project-ref.supabase.co`, the local app is not connected to the real
+  Supabase project.
+- If `/auth/callback` receives a `code` parameter but no session is restored,
+  the app attempts `exchangeCodeForSession(code)` and logs any failure.
 
 ```sql
 create extension if not exists pgcrypto;

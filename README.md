@@ -42,10 +42,11 @@ Use [src/supabase_config.md](src/supabase_config.md) as the sample backend setup
 - enable Row Level Security
 - add Storage policies for `user/{owner_id}/...` paths
 
-For auth button logging, run
+For optional auth diagnostics, run
 [supabase/migrations/20260528152000_create_auth_events.sql](supabase/migrations/20260528152000_create_auth_events.sql)
 in the Supabase SQL editor or through the Supabase CLI. This creates
 `public.auth_events`, grants API access, and reloads the PostgREST schema cache.
+Auth diagnostic events are written to Supabase and are not rendered in the app UI.
 
 ## OAuth Preview Route
 
@@ -64,6 +65,10 @@ http://127.0.0.1:5173/auth/callback
 http://localhost:5173/auth/callback
 https://your-vercel-domain.vercel.app/auth/callback
 ```
+
+If the browser still shows `redirect_to=http://127.0.0.1:5173` without
+`/auth/callback`, restart the local dev server and start the login again from
+the app. That URL means the browser is using an older auth request.
 
 ## Public Legal Routes
 
