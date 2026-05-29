@@ -4,7 +4,7 @@ primary sign-in method. Auth should support the upload system without rebuilding
 identity, sessions, ownership, or permission checks from scratch.
 
 Primary auth flow
-1. User clicks "Continue with Google".
+1. User clicks "Login with Google".
 2. Supabase Auth redirects the user through Google OAuth.
 3. Supabase creates the authenticated user if the Google account is new, or
    retrieves the existing user if the account has signed in before.
@@ -99,7 +99,7 @@ The app should have a small auth state layer that exposes:
 - current user
 - current session
 - loading state while Supabase restores the session
-- continue with Google
+- login with Google
 - sign out
 - optional auth diagnostics in Supabase
 
@@ -138,7 +138,7 @@ as diagnostic events.
 
 Unauthenticated behavior
 If there is no active session:
-- show a "Continue with Google" action
+- show a "Login with Google" action
 - prevent upload attempts
 - avoid creating local-only upload records that cannot be associated with a user
 

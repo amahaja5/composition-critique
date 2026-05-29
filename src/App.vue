@@ -14,9 +14,6 @@ import {
     safeFilename,
     validateCompositionFile,
 } from "./lib/uploads";
-import authDoc from "./auth.md?raw";
-import supabaseConfigDoc from "./supabase_config.md?raw";
-import uploadButtonDoc from "./upload_button.md?raw";
 
 const authReady = ref(false);
 const session = ref(null);
@@ -25,17 +22,20 @@ const selectedFiles = ref([]);
 const uploadStatus = ref("idle");
 const uploadMessage = ref("");
 const compositionTitle = ref("");
-const activeDoc = ref("upload");
 const lastUpload = ref(null);
+const reviewStatus = ref("idle");
+const reviewMessage = ref("Review will appear here after submission.");
+const reviewText = ref("");
+const reviewError = ref("");
+const reviewId = ref("");
 const routePath = ref(normalizePath(window.location.pathname));
 
 let authSubscription = null;
+let reviewAbortController = null;
 
-const docs = [
-    { id: "upload", label: "Upload", body: uploadButtonDoc },
-    { id: "auth", label: "Auth", body: authDoc },
-    { id: "supabase", label: "Supabase", body: supabaseConfigDoc },
-];
+const reviewStreamUrl =
+    (import.meta.env.VITE_REVIEW_STREAM_URL ?? "/api/review-stream").trim() ||
+    "/api/review-stream";
 
 const legalPages = [
     {
@@ -122,9 +122,6 @@ const legalPages = [
     },
 ];
 
-const currentDoc = computed(
-    () => docs.find((doc) => doc.id === activeDoc.value) ?? docs[0],
-);
 const user = computed(() => session.value?.user ?? null);
 const isUploading = computed(() => uploadStatus.value === "uploading");
 const hasSelectionErrors = computed(() =>
@@ -132,6 +129,47 @@ const hasSelectionErrors = computed(() =>
 );
 const hasSubmittedUpload = computed(
     () => uploadStatus.value === "success" && lastUpload.value?.assets?.length,
+);
+const reviewPanelTitle = computed(() => {
+    if (reviewStatus.value === "complete") return "Review complete";
+    if (reviewStatus.value === "error") return "Review interrupted";
+    if (reviewStatus.value === "not_configured") return "Review stream not configured";
+    if (["connecting", "waiting", "streaming"].includes(reviewStatus.value)) {
+        return "Live review";
+    }
+
+    return "Review";
+});
+const reviewStatusLabel = computed(() => {
+    const labels = {
+        complete: "complete",
+        connecting: "connecting",
+        error: "error",
+        idle: "pending",
+        not_configured: "not configured",
+        streaming: "streaming",
+        waiting: "waiting",
+    };
+
+    return labels[reviewStatus.value] ?? reviewStatus.value;
+});
+const reviewPlaceholder = computed(() => {
+    if (reviewStatus.value === "not_configured") {
+        return "Add VITE_REVIEW_STREAM_URL or deploy the review stream endpoint.";
+    }
+
+    if (reviewStatus.value === "connecting" || reviewStatus.value === "waiting") {
+        return "Waiting for released review output.";
+    }
+
+    if (reviewStatus.value === "error") {
+        return "No review text was received.";
+    }
+
+    return "Review will appear here after submission.";
+});
+const canReconnectReview = computed(
+    () => reviewStatus.value === "error" && Boolean(lastUpload.value?.compositionId),
 );
 const authCallbackUrl = computed(() => `${window.location.origin}/auth/callback`);
 const isAuthCallbackRoute = computed(() => routePath.value === "/auth/callback");
@@ -216,6 +254,7 @@ onMounted(async () => {
 onUnmounted(() => {
     window.removeEventListener("popstate", syncRoute);
     authSubscription?.unsubscribe();
+    abortReviewStream();
 });
 
 function normalizePath(pathname) {
@@ -346,6 +385,7 @@ async function continueWithGoogle() {
 
 async function signOut() {
     authError.value = "";
+    abortReviewStream();
     await logAuthEvent("sign_out_requested", {
         email: user.value?.email ?? null,
     });
@@ -389,11 +429,13 @@ function removeSelectedFile(id) {
 }
 
 function resetUpload() {
+    abortReviewStream();
     selectedFiles.value = [];
     uploadStatus.value = "idle";
     uploadMessage.value = "";
     compositionTitle.value = "";
     lastUpload.value = null;
+    resetReviewPanel();
 }
 
 async function uploadFiles() {
@@ -405,6 +447,8 @@ async function uploadFiles() {
         return;
     }
 
+    abortReviewStream();
+    resetReviewPanel("Review will start after the upload completes.");
     uploadStatus.value = "uploading";
     uploadMessage.value = "Verifying signed-in user.";
 
@@ -414,6 +458,7 @@ async function uploadFiles() {
         uploadStatus.value = "error";
         uploadMessage.value =
             userError?.message ?? "Sign in again before submitting files.";
+        resetReviewPanel("Review will appear after a successful submission.");
         return;
     }
 
@@ -432,6 +477,7 @@ async function uploadFiles() {
     if (compositionResult.error) {
         uploadStatus.value = "error";
         uploadMessage.value = compositionResult.error.message;
+        resetReviewPanel("Review will appear after a successful submission.");
         return;
     }
 
@@ -551,7 +597,8 @@ async function uploadFiles() {
         assets: uploaded.map((item) => ({
             id: item.id,
             name: item.file.name,
-            storagePath: item.storagePath,
+            assetType: item.assetType,
+            size: item.file.size,
         })),
         failedAssets: failed.map((item) => ({
             id: item.id,
@@ -566,6 +613,12 @@ async function uploadFiles() {
     uploadMessage.value = failed.length
         ? `${uploaded.length} uploaded, ${failed.length} failed.`
         : `${uploaded.length} file${uploaded.length === 1 ? "" : "s"} uploaded.`;
+
+    if (failed.length) {
+        resetReviewPanel("Review will start after all files submit successfully.");
+    } else if (uploaded.length) {
+        startReviewStream(compositionId);
+    }
 }
 
 async function logUploadEvent({
@@ -587,6 +640,202 @@ async function logUploadEvent({
 
     if (error) {
         console.warn("Unable to write upload event", error);
+    }
+}
+
+function resetReviewPanel(message = "Review will appear here after submission.") {
+    reviewStatus.value = "idle";
+    reviewMessage.value = message;
+    reviewText.value = "";
+    reviewError.value = "";
+    reviewId.value = "";
+}
+
+function abortReviewStream() {
+    reviewAbortController?.abort();
+    reviewAbortController = null;
+}
+
+function reconnectReviewStream() {
+    if (!lastUpload.value?.compositionId) {
+        return;
+    }
+
+    startReviewStream(lastUpload.value.compositionId);
+}
+
+async function startReviewStream(compositionId) {
+    abortReviewStream();
+    reviewText.value = "";
+    reviewError.value = "";
+    reviewId.value = "";
+
+    if (!reviewStreamUrl) {
+        reviewStatus.value = "not_configured";
+        reviewMessage.value = "Review stream not configured.";
+        return;
+    }
+
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.access_token) {
+        reviewStatus.value = "error";
+        reviewMessage.value = "Unable to start review.";
+        reviewError.value =
+            error?.message ?? "Sign in again before starting the review stream.";
+        return;
+    }
+
+    const controller = new AbortController();
+    reviewAbortController = controller;
+    reviewStatus.value = "connecting";
+    reviewMessage.value = "Connecting to review stream.";
+
+    try {
+        const response = await fetch(reviewStreamUrl, {
+            method: "POST",
+            headers: {
+                Accept: "text/event-stream",
+                Authorization: `Bearer ${data.session.access_token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                composition_id: compositionId,
+            }),
+            signal: controller.signal,
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                `Review stream failed with ${response.status} ${response.statusText}`.trim(),
+            );
+        }
+
+        if (!response.body) {
+            throw new Error("Review stream response did not include a readable body.");
+        }
+
+        reviewStatus.value = "waiting";
+        reviewMessage.value = "Waiting for review.";
+        await readReviewSseStream(response.body, controller);
+
+        if (reviewAbortController === controller && reviewStatus.value !== "error") {
+            reviewStatus.value = "complete";
+            reviewMessage.value = reviewText.value
+                ? "Review complete."
+                : "Review stream closed.";
+        }
+    } catch (error) {
+        if (controller.signal.aborted) {
+            return;
+        }
+
+        reviewStatus.value = "error";
+        reviewMessage.value = "Review stream interrupted.";
+        reviewError.value =
+            error instanceof Error ? error.message : "Unable to stream review.";
+    } finally {
+        if (reviewAbortController === controller) {
+            reviewAbortController = null;
+        }
+    }
+}
+
+async function readReviewSseStream(body, controller) {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (!controller.signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() ?? "";
+
+        for (const eventText of events) {
+            handleReviewSseEvent(parseSseEvent(eventText));
+        }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+        handleReviewSseEvent(parseSseEvent(buffer));
+    }
+}
+
+function parseSseEvent(eventText) {
+    const dataLines = [];
+    let event = "message";
+
+    for (const line of eventText.split(/\r?\n/)) {
+        if (!line || line.startsWith(":")) continue;
+
+        const separatorIndex = line.indexOf(":");
+        const field =
+            separatorIndex === -1 ? line : line.slice(0, separatorIndex);
+        let value =
+            separatorIndex === -1 ? "" : line.slice(separatorIndex + 1);
+        if (value.startsWith(" ")) {
+            value = value.slice(1);
+        }
+
+        if (field === "event") {
+            event = value || "message";
+        } else if (field === "data") {
+            dataLines.push(value);
+        }
+    }
+
+    return {
+        data: dataLines.join("\n"),
+        event,
+    };
+}
+
+function parseReviewPayload(data) {
+    if (!data) return {};
+
+    try {
+        return JSON.parse(data);
+    } catch {
+        return {
+            message: data,
+            text: data,
+        };
+    }
+}
+
+function handleReviewSseEvent({ event, data }) {
+    const payload = parseReviewPayload(data);
+
+    if (event === "status") {
+        reviewStatus.value = reviewText.value ? "streaming" : "waiting";
+        reviewMessage.value = payload.message ?? "Waiting for review.";
+        return;
+    }
+
+    if (event === "delta" || event === "message") {
+        const nextText = payload.text ?? payload.delta ?? payload.content ?? data;
+        if (nextText) {
+            reviewText.value += nextText;
+        }
+        reviewStatus.value = "streaming";
+        reviewMessage.value = payload.message ?? "Review streaming.";
+        return;
+    }
+
+    if (event === "done") {
+        reviewStatus.value = "complete";
+        reviewMessage.value = "Review complete.";
+        reviewId.value = payload.review_id ?? payload.id ?? "";
+        return;
+    }
+
+    if (event === "error") {
+        reviewStatus.value = "error";
+        reviewMessage.value = "Review stream interrupted.";
+        reviewError.value = payload.message ?? "Unable to stream review.";
     }
 }
 
@@ -641,6 +890,9 @@ function formatBytes(bytes) {
                 <button v-else class="button" type="button" @click="signOut">
                     Sign out
                 </button>
+                <p v-if="!user" class="auth-helper">
+                    New users are created automatically after Google approval.
+                </p>
                 <nav class="legal-nav" aria-label="Legal pages">
                     <a href="/terms" @click.prevent="navigateTo('/terms')"
                         >Terms</a
@@ -661,7 +913,7 @@ function formatBytes(bytes) {
                 <p class="eyebrow">OAuth Consent</p>
                 <h2 id="consent-title">Composition Critique Authorization</h2>
                 <p>
-                    This route is implemented for OAuth preview checks. Continue
+                    This route is implemented for OAuth preview checks. Login
                     with Google to create or restore a Supabase session, then
                     continue to the upload workspace.
                 </p>
@@ -684,8 +936,11 @@ function formatBytes(bytes) {
                         :disabled="!isSupabaseConfigured || !authReady"
                         @click="continueWithGoogle"
                     >
-                        Continue with Google
+                        Login with Google
                     </button>
+                    <p v-if="!user" class="auth-helper auth-helper--inline">
+                        New users are created automatically after Google approval.
+                    </p>
                     <button class="button" type="button" @click="goToWorkspace">
                         Continue to workspace
                     </button>
@@ -794,7 +1049,11 @@ function formatBytes(bytes) {
                     <div class="submission-summary__header">
                         <div>
                             <strong>{{ lastUpload.title }}</strong>
-                            <code>{{ lastUpload.compositionId }}</code>
+                            <span>
+                                {{ lastUpload.uploaded }}
+                                file{{ lastUpload.uploaded === 1 ? "" : "s" }}
+                                submitted
+                            </span>
                         </div>
                         <span class="status-pill status-pill--success">
                             {{ lastUpload.uploaded }} uploaded
@@ -807,7 +1066,10 @@ function formatBytes(bytes) {
                             :key="asset.id"
                         >
                             <span>{{ asset.name }}</span>
-                            <code>{{ asset.storagePath }}</code>
+                            <small>
+                                {{ asset.assetType }} |
+                                {{ formatBytes(asset.size) }}
+                            </small>
                         </li>
                     </ul>
 
@@ -856,9 +1118,6 @@ function formatBytes(bytes) {
                                     >{{ item.assetType || "unsupported" }} |
                                     {{ formatBytes(item.file.size) }}</span
                                 >
-                                <small v-if="item.storagePath">{{
-                                    item.storagePath
-                                }}</small>
                                 <small v-if="item.error" class="error-text">{{
                                     item.error
                                 }}</small>
@@ -910,30 +1169,47 @@ function formatBytes(bytes) {
                 </p>
             </section>
 
-            <aside class="docs-panel" aria-labelledby="docs-title">
+            <aside class="review-panel" aria-labelledby="review-title">
                 <div class="section-heading">
                     <div>
-                        <p class="eyebrow">Design Notes</p>
-                        <h2 id="docs-title">{{ currentDoc.label }}</h2>
+                        <p class="eyebrow">Review</p>
+                        <h2 id="review-title">{{ reviewPanelTitle }}</h2>
                     </div>
+                    <span
+                        class="status-pill"
+                        :class="{
+                            'status-pill--success':
+                                reviewStatus === 'complete',
+                            'status-pill--error': reviewStatus === 'error',
+                        }"
+                    >
+                        {{ reviewStatusLabel }}
+                    </span>
                 </div>
 
-                <div class="tabs" role="tablist" aria-label="Design documents">
+                <div class="review-panel__body">
+                    <p class="review-message">{{ reviewMessage }}</p>
+                    <pre v-if="reviewText" class="review-output">{{
+                        reviewText
+                    }}</pre>
+                    <div v-else class="review-placeholder">
+                        {{ reviewPlaceholder }}
+                    </div>
+                    <p v-if="reviewId" class="review-meta">
+                        Review ID: {{ reviewId }}
+                    </p>
+                    <p v-if="reviewError" class="error-text">
+                        {{ reviewError }}
+                    </p>
                     <button
-                        v-for="doc in docs"
-                        :key="doc.id"
-                        class="tab-button"
-                        :class="{ 'tab-button--active': activeDoc === doc.id }"
+                        v-if="canReconnectReview"
+                        class="button"
                         type="button"
-                        role="tab"
-                        :aria-selected="activeDoc === doc.id"
-                        @click="activeDoc = doc.id"
+                        @click="reconnectReviewStream"
                     >
-                        {{ doc.label }}
+                        Reconnect
                     </button>
                 </div>
-
-                <pre class="doc-view">{{ currentDoc.body }}</pre>
             </aside>
         </div>
     </main>

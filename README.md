@@ -8,7 +8,7 @@ The app currently wires:
 - Supabase Storage uploads to the `compositions` bucket
 - Postgres inserts for `compositions`, `composition_assets`, and `upload_events`
 - ownership via the logged-in Supabase user id on every submission row and path
-- in-app reference panels for the auth, upload, and Supabase design docs
+- live review streaming through a server-side Anthropic review endpoint
 
 ## Environment
 
@@ -17,9 +17,20 @@ Create `.env.local` from `.env.example`:
 ```sh
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
+VITE_REVIEW_STREAM_URL=/api/review-stream
+ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_MODEL=claude-opus-4-8
 ```
 
-The browser app must never receive a Supabase service role key.
+The browser app must never receive a Supabase service role key or Anthropic API
+key. `ANTHROPIC_API_KEY` is used only by the Vercel API function.
+
+## Review Streaming
+
+The app posts uploaded composition ids to `/api/review-stream`. That Vercel API
+function validates the Supabase user session, loads the submitted files, runs two
+Anthropic streaming review passes using prompts in `system_prompts/`, and sends
+SSE events back to the browser.
 
 ## Development
 
