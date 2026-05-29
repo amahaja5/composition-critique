@@ -486,6 +486,7 @@ const mimeType = assetType === 'pdf'
     : file.name.toLowerCase().endsWith('.mxl')
       ? 'application/vnd.recordare.musicxml-compressed'
       : 'application/xml'
+const uploadBody = file.type === mimeType ? file : new Blob([file], { type: mimeType })
 const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
 const storagePath = `user/${ownerId}/compositions/${compositionId}/${assetId}/${safeFilename}`
 
@@ -497,7 +498,7 @@ await supabase.from('compositions').insert({
 
 const { error: uploadError } = await supabase.storage
   .from('compositions')
-  .upload(storagePath, file, {
+  .upload(storagePath, uploadBody, {
     cacheControl: '3600',
     upsert: false,
     contentType: mimeType,

@@ -11,6 +11,7 @@ import {
     COMPOSITION_ASSETS_BUCKET,
     buildStoragePath,
     getAssetType,
+    getUploadBody,
     getUploadMimeType,
     safeFilename,
     validateCompositionFile,
@@ -499,6 +500,7 @@ async function uploadFiles() {
         const assetType = getAssetType(item.file);
         const filename = safeFilename(item.file.name);
         const mimeType = getUploadMimeType(item.file, assetType);
+        const uploadBody = getUploadBody(item.file, mimeType);
         const storagePath = buildStoragePath(
             ownerId,
             compositionId,
@@ -520,13 +522,14 @@ async function uploadFiles() {
 
         const uploadResult = await supabase.storage
             .from(COMPOSITION_ASSETS_BUCKET)
-            .upload(storagePath, item.file, {
+            .upload(storagePath, uploadBody, {
                 cacheControl: "3600",
                 contentType: mimeType,
                 metadata: {
                     asset_id: assetId,
                     asset_type: assetType,
                     composition_id: compositionId,
+                    detected_mime_type: item.file.type || "unknown",
                     original_filename: item.file.name,
                     owner_id: ownerId,
                 },

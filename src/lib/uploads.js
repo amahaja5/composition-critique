@@ -89,6 +89,14 @@ export function getUploadMimeType(file, assetType) {
   return 'application/xml'
 }
 
+export function getUploadBody(file, mimeType) {
+  if (file.type.toLowerCase() === mimeType) {
+    return file
+  }
+
+  return new Blob([file], { type: mimeType })
+}
+
 function formatLimit(bytes) {
   return `${Math.floor(bytes / 1024 / 1024)} MB`
 }

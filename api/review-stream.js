@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 
 const MAX_XML_CHARS = 120_000
 const MAX_PDF_BYTES = 30 * 1024 * 1024
+const COMPRESSED_MUSICXML_MIME_TYPE = 'application/vnd.recordare.musicxml-compressed'
 
 const technicalPromptUrl = new URL(
   '../system_prompts/technical_review_system_prompt.md',
@@ -215,14 +216,14 @@ async function buildSourceContent(supabase, composition, assets) {
         type: 'document',
         source: {
           type: 'base64',
-          media_type: asset.mime_type || 'application/pdf',
+          media_type: getReviewMediaType(asset),
           data: Buffer.from(await blob.arrayBuffer()).toString('base64'),
         },
       })
       continue
     }
 
-    if (asset.mime_type === 'application/vnd.recordare.musicxml-compressed') {
+    if (isCompressedMusicXml(asset)) {
       content.push({
         type: 'text',
         text: `${asset.original_filename} is a compressed MusicXML file and could not be expanded by this endpoint.`,
@@ -242,6 +243,33 @@ async function buildSourceContent(supabase, composition, assets) {
   }
 
   return content
+}
+
+function getReviewMediaType(asset) {
+  if (asset.asset_type === 'pdf' || hasExtension(asset.original_filename, '.pdf')) {
+    return 'application/pdf'
+  }
+
+  if (isCompressedMusicXml(asset)) {
+    return COMPRESSED_MUSICXML_MIME_TYPE
+  }
+
+  if (hasExtension(asset.original_filename, '.musicxml') || hasExtension(asset.original_filename, '.xml')) {
+    return 'application/xml'
+  }
+
+  return asset.mime_type || 'application/octet-stream'
+}
+
+function isCompressedMusicXml(asset) {
+  return (
+    asset.mime_type === COMPRESSED_MUSICXML_MIME_TYPE ||
+    hasExtension(asset.original_filename, '.mxl')
+  )
+}
+
+function hasExtension(filename, extension) {
+  return filename?.toLowerCase().endsWith(extension) ?? false
 }
 
 async function streamAnthropicReview({ anthropic, content, model, res, status, system }) {
