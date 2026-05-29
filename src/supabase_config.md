@@ -82,13 +82,18 @@ For local Supabase CLI development:
 
 Storage bucket
 
+The checked-in production migration is
+`supabase/migrations/20260529100000_create_composition_upload_schema.sql`. Use
+that file as the source of truth when applying the upload schema to a Supabase
+project.
+
 Create one private bucket:
 
 ```sql
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
-  'composition-assets',
-  'composition-assets',
+  'compositions',
+  'compositions',
   false,
   52428800,
   array[
@@ -201,7 +206,7 @@ create table public.composition_assets (
   owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   asset_type public.composition_asset_type not null,
   original_filename text not null,
-  storage_bucket text not null default 'composition-assets',
+  storage_bucket text not null default 'compositions',
   storage_path text not null,
   mime_type text not null,
   byte_size bigint not null check (byte_size > 0),
@@ -293,7 +298,7 @@ for insert
 to authenticated
 with check (
   owner_id = (select auth.uid())
-  and storage_bucket = 'composition-assets'
+  and storage_bucket = 'compositions'
   and storage_path like ('user/' || ((select auth.uid())::text) || '/%')
   and exists (
     select 1
@@ -310,7 +315,7 @@ to authenticated
 using (owner_id = (select auth.uid()))
 with check (
   owner_id = (select auth.uid())
-  and storage_bucket = 'composition-assets'
+  and storage_bucket = 'compositions'
   and storage_path like ('user/' || ((select auth.uid())::text) || '/%')
   and exists (
     select 1
@@ -386,9 +391,10 @@ on storage.objects
 for insert
 to authenticated
 with check (
-  bucket_id = 'composition-assets'
+  bucket_id = 'compositions'
   and (storage.foldername(name))[1] = 'user'
   and (storage.foldername(name))[2] = ((select auth.uid())::text)
+  and (storage.foldername(name))[3] = 'compositions'
 );
 
 create policy "Users can read their own composition assets"
@@ -396,9 +402,10 @@ on storage.objects
 for select
 to authenticated
 using (
-  bucket_id = 'composition-assets'
+  bucket_id = 'compositions'
   and (storage.foldername(name))[1] = 'user'
   and (storage.foldername(name))[2] = ((select auth.uid())::text)
+  and (storage.foldername(name))[3] = 'compositions'
 );
 
 create policy "Users can delete their own composition assets"
@@ -406,9 +413,10 @@ on storage.objects
 for delete
 to authenticated
 using (
-  bucket_id = 'composition-assets'
+  bucket_id = 'compositions'
   and (storage.foldername(name))[1] = 'user'
   and (storage.foldername(name))[2] = ((select auth.uid())::text)
+  and (storage.foldername(name))[3] = 'compositions'
 );
 ```
 
@@ -464,27 +472,42 @@ const ownerId = userData.user.id
 const compositionId = crypto.randomUUID()
 const assetId = crypto.randomUUID()
 const assetType = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'musicxml'
-const mimeType = file.type || (
-  file.name.toLowerCase().endsWith('.mxl')
-    ? 'application/vnd.recordare.musicxml-compressed'
-    : assetType === 'pdf'
-      ? 'application/pdf'
+const musicXmlMimeTypes = [
+  'application/xml',
+  'text/xml',
+  'application/vnd.recordare.musicxml+xml',
+  'application/vnd.recordare.musicxml',
+  'application/vnd.recordare.musicxml-compressed',
+]
+const mimeType = assetType === 'pdf'
+  ? 'application/pdf'
+  : musicXmlMimeTypes.includes(file.type)
+    ? file.type
+    : file.name.toLowerCase().endsWith('.mxl')
+      ? 'application/vnd.recordare.musicxml-compressed'
       : 'application/xml'
-)
 const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
 const storagePath = `user/${ownerId}/compositions/${compositionId}/${assetId}/${safeFilename}`
 
 await supabase.from('compositions').insert({
   id: compositionId,
+  owner_id: ownerId,
   title: 'Untitled composition',
 })
 
 const { error: uploadError } = await supabase.storage
-  .from('composition-assets')
+  .from('compositions')
   .upload(storagePath, file, {
     cacheControl: '3600',
     upsert: false,
     contentType: mimeType,
+    metadata: {
+      asset_id: assetId,
+      asset_type: assetType,
+      composition_id: compositionId,
+      original_filename: file.name,
+      owner_id: ownerId,
+    },
   })
 
 if (uploadError) throw uploadError
@@ -492,6 +515,7 @@ if (uploadError) throw uploadError
 await supabase.from('composition_assets').insert({
   id: assetId,
   composition_id: compositionId,
+  owner_id: ownerId,
   asset_type: assetType,
   original_filename: file.name,
   storage_path: storagePath,
@@ -503,17 +527,17 @@ await supabase.from('composition_assets').insert({
 await supabase.from('upload_events').insert({
   asset_id: assetId,
   composition_id: compositionId,
+  owner_id: ownerId,
   event_type: 'upload_succeeded',
   message: 'Upload completed',
 })
 ```
 
 Notes
-- Let database defaults fill `owner_id`; RLS still verifies the row belongs to
-  the authenticated user.
-- The upload sequence may leave a Storage object without a metadata row if the
-  metadata insert fails. A production implementation should either clean up the
-  object on failure or use a server-side function to coordinate the workflow.
+- The app sends `owner_id` for inspectable rows, while RLS still treats
+  `auth.uid()` as the authority.
+- If the metadata insert fails after a Storage upload succeeds, the app attempts
+  to remove the uploaded object so Storage and Postgres do not drift apart.
 - Server-side validation is still required before downstream parsing or
   long-context extraction.
 

@@ -486,6 +486,19 @@ input:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.result-strip ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result-strip li {
+  display: grid;
+  gap: 3px;
+}
+
 .docs-panel .section-heading {
   padding: 22px 22px 12px;
 }

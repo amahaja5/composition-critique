@@ -1,6 +1,8 @@
 const PDF_MAX_BYTES = 50 * 1024 * 1024
 const MUSICXML_MAX_BYTES = 10 * 1024 * 1024
 
+export const COMPOSITION_ASSETS_BUCKET = 'compositions'
+
 const PDF_EXTENSIONS = ['.pdf']
 const MUSICXML_EXTENSIONS = ['.musicxml', '.xml', '.mxl']
 const PDF_MIME_TYPES = ['application/pdf']
@@ -72,12 +74,12 @@ export function buildStoragePath(ownerId, compositionId, assetId, filename) {
 export function getUploadMimeType(file, assetType) {
   const type = file.type.toLowerCase()
 
-  if (type) {
-    return type
-  }
-
   if (assetType === 'pdf') {
     return 'application/pdf'
+  }
+
+  if (MUSICXML_MIME_TYPES.includes(type)) {
+    return type
   }
 
   if (file.name.toLowerCase().endsWith('.mxl')) {

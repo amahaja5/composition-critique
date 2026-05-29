@@ -5,8 +5,9 @@ Vue app for authenticated composition uploads and critique workflows.
 The app currently wires:
 - Google OAuth through Supabase Auth
 - PDF, MusicXML, XML, and MXL file selection
-- Supabase Storage uploads to the `composition-assets` bucket
+- Supabase Storage uploads to the `compositions` bucket
 - Postgres inserts for `compositions`, `composition_assets`, and `upload_events`
+- ownership via the logged-in Supabase user id on every submission row and path
 - in-app reference panels for the auth, upload, and Supabase design docs
 
 ## Environment
@@ -37,10 +38,19 @@ npm run build
 
 Use [src/supabase_config.md](src/supabase_config.md) as the sample backend setup:
 - enable Google OAuth
-- create the private `composition-assets` bucket
+- create the private `compositions` bucket
 - create the composition metadata tables
 - enable Row Level Security
 - add Storage policies for `user/{owner_id}/...` paths
+
+For the production upload database and Storage wiring, run
+[supabase/migrations/20260529100000_create_composition_upload_schema.sql](supabase/migrations/20260529100000_create_composition_upload_schema.sql)
+in the Supabase SQL editor or through the Supabase CLI. This creates the private
+bucket, `compositions`, `composition_assets`, `upload_events`, grants, RLS
+policies, and Storage object policies needed for authenticated uploads.
+
+If the Supabase SQL editor limits you to 100 lines, run the files in
+[supabase/manual_sql](supabase/manual_sql) in numeric order instead.
 
 For optional auth diagnostics, run
 [supabase/migrations/20260528152000_create_auth_events.sql](supabase/migrations/20260528152000_create_auth_events.sql)

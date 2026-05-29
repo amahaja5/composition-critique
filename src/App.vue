@@ -7,6 +7,7 @@ import {
 } from "./lib/supabase";
 import {
     ACCEPTED_UPLOAD_TYPES,
+    COMPOSITION_ASSETS_BUCKET,
     buildStoragePath,
     getAssetType,
     getUploadMimeType,
@@ -401,14 +402,26 @@ async function uploadFiles() {
     }
 
     uploadStatus.value = "uploading";
-    uploadMessage.value = "Preparing composition.";
+    uploadMessage.value = "Verifying signed-in user.";
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+        session.value = null;
+        uploadStatus.value = "error";
+        uploadMessage.value =
+            userError?.message ?? "Sign in again before submitting files.";
+        return;
+    }
+
+    uploadMessage.value = "Saving composition.";
 
     const compositionId = crypto.randomUUID();
-    const ownerId = user.value.id;
+    const ownerId = userData.user.id;
     const title = compositionTitle.value.trim() || inferCompositionTitle();
 
     const compositionResult = await supabase.from("compositions").insert({
         id: compositionId,
+        owner_id: ownerId,
         title,
     });
 
@@ -438,6 +451,7 @@ async function uploadFiles() {
         item.storagePath = storagePath;
 
         await logUploadEvent({
+            ownerId,
             compositionId,
             eventType: "upload_started",
             message: `Started upload for ${item.file.name}`,
@@ -448,10 +462,17 @@ async function uploadFiles() {
         });
 
         const uploadResult = await supabase.storage
-            .from("composition-assets")
+            .from(COMPOSITION_ASSETS_BUCKET)
             .upload(storagePath, item.file, {
                 cacheControl: "3600",
                 contentType: mimeType,
+                metadata: {
+                    asset_id: assetId,
+                    asset_type: assetType,
+                    composition_id: compositionId,
+                    original_filename: item.file.name,
+                    owner_id: ownerId,
+                },
                 upsert: false,
             });
 
@@ -460,6 +481,7 @@ async function uploadFiles() {
             item.error = uploadResult.error.message;
             failed.push(item);
             await logUploadEvent({
+                ownerId,
                 compositionId,
                 eventType: "upload_failed",
                 message: uploadResult.error.message,
@@ -474,8 +496,10 @@ async function uploadFiles() {
         const assetResult = await supabase.from("composition_assets").insert({
             id: assetId,
             composition_id: compositionId,
+            owner_id: ownerId,
             asset_type: assetType,
             original_filename: item.file.name,
+            storage_bucket: COMPOSITION_ASSETS_BUCKET,
             storage_path: storagePath,
             mime_type: mimeType,
             byte_size: item.file.size,
@@ -483,14 +507,19 @@ async function uploadFiles() {
         });
 
         if (assetResult.error) {
+            const cleanupResult = await supabase.storage
+                .from(COMPOSITION_ASSETS_BUCKET)
+                .remove([storagePath]);
             item.status = "error";
             item.error = assetResult.error.message;
             failed.push(item);
             await logUploadEvent({
+                ownerId,
                 compositionId,
                 eventType: "upload_failed",
                 message: assetResult.error.message,
                 metadata: {
+                    cleanup_error: cleanupResult.error?.message ?? null,
                     original_filename: item.file.name,
                     storage_path: storagePath,
                 },
@@ -501,6 +530,7 @@ async function uploadFiles() {
         item.status = "uploaded";
         uploaded.push(item);
         await logUploadEvent({
+            ownerId,
             assetId,
             compositionId,
             eventType: "upload_succeeded",
@@ -514,6 +544,16 @@ async function uploadFiles() {
     lastUpload.value = {
         compositionId,
         title,
+        assets: uploaded.map((item) => ({
+            id: item.id,
+            name: item.file.name,
+            storagePath: item.storagePath,
+        })),
+        failedAssets: failed.map((item) => ({
+            id: item.id,
+            name: item.file.name,
+            error: item.error,
+        })),
         uploaded: uploaded.length,
         failed: failed.length,
     };
@@ -530,10 +570,12 @@ async function logUploadEvent({
     eventType,
     message,
     metadata = {},
+    ownerId = user.value?.id ?? null,
 }) {
     const { error } = await supabase.from("upload_events").insert({
         asset_id: assetId,
         composition_id: compositionId,
+        owner_id: ownerId,
         event_type: eventType,
         message,
         metadata_json: metadata,
@@ -807,7 +849,7 @@ function formatBytes(bytes) {
                         :disabled="!canUpload"
                         @click="uploadFiles"
                     >
-                        Upload files
+                        Submit files
                     </button>
                     <button
                         class="button"
@@ -828,8 +870,16 @@ function formatBytes(bytes) {
                 </p>
 
                 <div v-if="lastUpload" class="result-strip">
-                    <span>{{ lastUpload.title }}</span>
-                    <code>{{ lastUpload.compositionId }}</code>
+                    <div>
+                        <span>{{ lastUpload.title }}</span>
+                        <code>{{ lastUpload.compositionId }}</code>
+                    </div>
+                    <ul v-if="lastUpload.assets.length">
+                        <li v-for="asset in lastUpload.assets" :key="asset.id">
+                            <span>{{ asset.name }}</span>
+                            <code>{{ asset.storagePath }}</code>
+                        </li>
+                    </ul>
                 </div>
             </section>
 

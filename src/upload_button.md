@@ -37,7 +37,7 @@ Use Postgres for structured records:
 - which composition/project it belongs to
 - upload state and processing state
 
-Use the private `composition-assets` Storage bucket from supabase_config.md.
+Use the private `compositions` Storage bucket from supabase_config.md.
 Store files under user-scoped paths:
 
 ```txt
@@ -164,7 +164,7 @@ Initial implementation slice
 2. Require an authenticated Supabase session before file selection.
 3. Add file selection, validation, progress, success, and error states.
 4. Create or select the target composition.
-5. Upload valid files to the `composition-assets` Supabase Storage bucket.
+5. Upload valid files to the `compositions` Supabase Storage bucket.
 6. Insert composition_assets metadata rows that match the stored object paths.
 7. Insert upload_events rows for success and failure.
 8. Use the RLS and Storage policies from supabase_config.md before exposing the
