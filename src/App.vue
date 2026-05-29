@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, markRaw, onMounted, onUnmounted, ref } from "vue";
+import MusicXmlPreview from "./components/MusicXmlPreview.vue";
 import {
     isSupabaseConfigured,
     supabase,
@@ -129,6 +130,12 @@ const hasSelectionErrors = computed(() =>
 );
 const hasSubmittedUpload = computed(
     () => uploadStatus.value === "success" && lastUpload.value?.assets?.length,
+);
+const musicXmlPreviewAssets = computed(
+    () =>
+        lastUpload.value?.assets?.filter(
+            (asset) => asset.assetType === "musicxml",
+        ) ?? [],
 );
 const reviewPanelTitle = computed(() => {
     if (reviewStatus.value === "complete") return "Review complete";
@@ -577,6 +584,7 @@ async function uploadFiles() {
             continue;
         }
 
+        item.preview = await createMusicXmlPreview(item, mimeType);
         item.status = "uploaded";
         uploaded.push(item);
         await logUploadEvent({
@@ -598,6 +606,7 @@ async function uploadFiles() {
             id: item.id,
             name: item.file.name,
             assetType: item.assetType,
+            preview: item.preview,
             size: item.file.size,
         })),
         failedAssets: failed.map((item) => ({
@@ -618,6 +627,38 @@ async function uploadFiles() {
         resetReviewPanel("Review will start after all files submit successfully.");
     } else if (uploaded.length) {
         startReviewStream(compositionId);
+    }
+}
+
+async function createMusicXmlPreview(item, mimeType) {
+    if (item.assetType !== "musicxml") {
+        return null;
+    }
+
+    try {
+        if (mimeType === "application/vnd.recordare.musicxml-compressed") {
+            return {
+                isCompressed: true,
+                musicXml: "",
+                musicXmlBuffer: markRaw(await item.file.arrayBuffer()),
+            };
+        }
+
+        return {
+            isCompressed: false,
+            musicXml: await item.file.text(),
+            musicXmlBuffer: null,
+        };
+    } catch (previewError) {
+        return {
+            error:
+                previewError instanceof Error
+                    ? previewError.message
+                    : "Unable to prepare this MusicXML preview.",
+            isCompressed: false,
+            musicXml: "",
+            musicXmlBuffer: null,
+        };
     }
 }
 
@@ -1045,37 +1086,59 @@ function formatBytes(bytes) {
                     <span class="status-pill">{{ uploadStatus }}</span>
                 </div>
 
-                <div v-if="hasSubmittedUpload" class="submission-summary">
-                    <div class="submission-summary__header">
-                        <div>
-                            <strong>{{ lastUpload.title }}</strong>
-                            <span>
-                                {{ lastUpload.uploaded }}
-                                file{{ lastUpload.uploaded === 1 ? "" : "s" }}
-                                submitted
+                <div v-if="hasSubmittedUpload" class="submitted-workspace">
+                    <div class="submission-summary">
+                        <div class="submission-summary__header">
+                            <div>
+                                <strong>{{ lastUpload.title }}</strong>
+                                <span>
+                                    {{ lastUpload.uploaded }}
+                                    file{{
+                                        lastUpload.uploaded === 1 ? "" : "s"
+                                    }}
+                                    submitted
+                                </span>
+                            </div>
+                            <span class="status-pill status-pill--success">
+                                {{ lastUpload.uploaded }} uploaded
                             </span>
                         </div>
-                        <span class="status-pill status-pill--success">
-                            {{ lastUpload.uploaded }} uploaded
-                        </span>
+
+                        <ul>
+                            <li
+                                v-for="asset in lastUpload.assets"
+                                :key="asset.id"
+                            >
+                                <span>{{ asset.name }}</span>
+                                <small>
+                                    {{ asset.assetType }} |
+                                    {{ formatBytes(asset.size) }}
+                                </small>
+                            </li>
+                        </ul>
+
+                        <button
+                            class="button button--compact"
+                            type="button"
+                            @click="resetUpload"
+                        >
+                            Submit another
+                        </button>
                     </div>
 
-                    <ul>
-                        <li
-                            v-for="asset in lastUpload.assets"
+                    <div
+                        v-if="musicXmlPreviewAssets.length"
+                        class="score-preview-list"
+                    >
+                        <MusicXmlPreview
+                            v-for="asset in musicXmlPreviewAssets"
                             :key="asset.id"
-                        >
-                            <span>{{ asset.name }}</span>
-                            <small>
-                                {{ asset.assetType }} |
-                                {{ formatBytes(asset.size) }}
-                            </small>
-                        </li>
-                    </ul>
-
-                    <button class="button" type="button" @click="resetUpload">
-                        Submit another
-                    </button>
+                            :file-name="asset.name"
+                            :is-compressed="asset.preview?.isCompressed"
+                            :music-xml="asset.preview?.musicXml"
+                            :music-xml-buffer="asset.preview?.musicXmlBuffer"
+                        />
+                    </div>
                 </div>
 
                 <div v-else class="upload-form">
