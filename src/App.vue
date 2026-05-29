@@ -130,6 +130,9 @@ const isUploading = computed(() => uploadStatus.value === "uploading");
 const hasSelectionErrors = computed(() =>
     selectedFiles.value.some((item) => item.error),
 );
+const hasSubmittedUpload = computed(
+    () => uploadStatus.value === "success" && lastUpload.value?.assets?.length,
+);
 const authCallbackUrl = computed(() => `${window.location.origin}/auth/callback`);
 const isAuthCallbackRoute = computed(() => routePath.value === "/auth/callback");
 const isOauthConsentRoute = computed(
@@ -389,6 +392,7 @@ function resetUpload() {
     selectedFiles.value = [];
     uploadStatus.value = "idle";
     uploadMessage.value = "";
+    compositionTitle.value = "";
     lastUpload.value = null;
 }
 
@@ -775,90 +779,126 @@ function formatBytes(bytes) {
                 <div class="section-heading">
                     <div>
                         <p class="eyebrow">Upload</p>
-                        <h2 id="upload-title">PDF and MusicXML assets</h2>
+                        <h2 id="upload-title">
+                            {{
+                                hasSubmittedUpload
+                                    ? "Submitted assets"
+                                    : "PDF and MusicXML assets"
+                            }}
+                        </h2>
                     </div>
                     <span class="status-pill">{{ uploadStatus }}</span>
                 </div>
 
-                <label class="field-label" for="composition-title"
-                    >Composition title</label
-                >
-                <input
-                    id="composition-title"
-                    v-model="compositionTitle"
-                    class="text-input"
-                    type="text"
-                    placeholder="Untitled composition"
-                    :disabled="isUploading"
-                />
-
-                <label class="file-drop" for="composition-files">
-                    <span>Choose PDF, MusicXML, XML, or MXL files</span>
-                    <small>{{ selectedFiles.length }} selected</small>
-                </label>
-                <input
-                    id="composition-files"
-                    class="sr-only"
-                    type="file"
-                    multiple
-                    :accept="ACCEPTED_UPLOAD_TYPES"
-                    :disabled="!user || isUploading || !isSupabaseConfigured"
-                    @change="handleFileSelection"
-                />
-
-                <div v-if="selectedFiles.length" class="file-list">
-                    <article
-                        v-for="item in selectedFiles"
-                        :key="item.id"
-                        class="file-row"
-                        :class="{ 'file-row--error': item.error }"
-                    >
+                <div v-if="hasSubmittedUpload" class="submission-summary">
+                    <div class="submission-summary__header">
                         <div>
-                            <strong>{{ item.file.name }}</strong>
-                            <span
-                                >{{ item.assetType || "unsupported" }} |
-                                {{ formatBytes(item.file.size) }}</span
-                            >
-                            <small v-if="item.storagePath">{{
-                                item.storagePath
-                            }}</small>
-                            <small v-if="item.error" class="error-text">{{
-                                item.error
-                            }}</small>
+                            <strong>{{ lastUpload.title }}</strong>
+                            <code>{{ lastUpload.compositionId }}</code>
                         </div>
-                        <div class="file-actions">
-                            <span class="status-pill">{{ item.status }}</span>
-                            <button
-                                class="icon-button"
-                                type="button"
-                                :disabled="isUploading"
-                                aria-label="Remove file"
-                                title="Remove file"
-                                @click="removeSelectedFile(item.id)"
-                            >
-                                X
-                            </button>
-                        </div>
-                    </article>
+                        <span class="status-pill status-pill--success">
+                            {{ lastUpload.uploaded }} uploaded
+                        </span>
+                    </div>
+
+                    <ul>
+                        <li
+                            v-for="asset in lastUpload.assets"
+                            :key="asset.id"
+                        >
+                            <span>{{ asset.name }}</span>
+                            <code>{{ asset.storagePath }}</code>
+                        </li>
+                    </ul>
+
+                    <button class="button" type="button" @click="resetUpload">
+                        Submit another
+                    </button>
                 </div>
 
-                <div class="action-row">
-                    <button
-                        class="button button--primary"
-                        type="button"
-                        :disabled="!canUpload"
-                        @click="uploadFiles"
+                <div v-else class="upload-form">
+                    <label class="field-label" for="composition-title"
+                        >Composition title</label
                     >
-                        Submit files
-                    </button>
-                    <button
-                        class="button"
-                        type="button"
+                    <input
+                        id="composition-title"
+                        v-model="compositionTitle"
+                        class="text-input"
+                        type="text"
+                        placeholder="Untitled composition"
                         :disabled="isUploading"
-                        @click="resetUpload"
-                    >
-                        Clear
-                    </button>
+                    />
+
+                    <label class="file-drop" for="composition-files">
+                        <span>Choose PDF, MusicXML, XML, or MXL files</span>
+                        <small>{{ selectedFiles.length }} selected</small>
+                    </label>
+                    <input
+                        id="composition-files"
+                        class="sr-only"
+                        type="file"
+                        multiple
+                        :accept="ACCEPTED_UPLOAD_TYPES"
+                        :disabled="!user || isUploading || !isSupabaseConfigured"
+                        @change="handleFileSelection"
+                    />
+
+                    <div v-if="selectedFiles.length" class="file-list">
+                        <article
+                            v-for="item in selectedFiles"
+                            :key="item.id"
+                            class="file-row"
+                            :class="{ 'file-row--error': item.error }"
+                        >
+                            <div>
+                                <strong>{{ item.file.name }}</strong>
+                                <span
+                                    >{{ item.assetType || "unsupported" }} |
+                                    {{ formatBytes(item.file.size) }}</span
+                                >
+                                <small v-if="item.storagePath">{{
+                                    item.storagePath
+                                }}</small>
+                                <small v-if="item.error" class="error-text">{{
+                                    item.error
+                                }}</small>
+                            </div>
+                            <div class="file-actions">
+                                <span class="status-pill">{{
+                                    item.status
+                                }}</span>
+                                <button
+                                    class="icon-button"
+                                    type="button"
+                                    :disabled="isUploading"
+                                    aria-label="Remove file"
+                                    title="Remove file"
+                                    @click="removeSelectedFile(item.id)"
+                                >
+                                    X
+                                </button>
+                            </div>
+                        </article>
+                    </div>
+
+                    <div class="action-row">
+                        <button
+                            class="button button--primary"
+                            type="button"
+                            :disabled="!canUpload"
+                            @click="uploadFiles"
+                        >
+                            Submit files
+                        </button>
+                        <button
+                            class="button"
+                            type="button"
+                            :disabled="isUploading"
+                            @click="resetUpload"
+                        >
+                            Clear
+                        </button>
+                    </div>
                 </div>
 
                 <p
@@ -868,19 +908,6 @@ function formatBytes(bytes) {
                 >
                     {{ uploadMessage }}
                 </p>
-
-                <div v-if="lastUpload" class="result-strip">
-                    <div>
-                        <span>{{ lastUpload.title }}</span>
-                        <code>{{ lastUpload.compositionId }}</code>
-                    </div>
-                    <ul v-if="lastUpload.assets.length">
-                        <li v-for="asset in lastUpload.assets" :key="asset.id">
-                            <span>{{ asset.name }}</span>
-                            <code>{{ asset.storagePath }}</code>
-                        </li>
-                    </ul>
-                </div>
             </section>
 
             <aside class="docs-panel" aria-labelledby="docs-title">
