@@ -1,6 +1,7 @@
 <script setup>
 import { computed, markRaw, onMounted, onUnmounted, ref } from "vue";
 import MusicXmlPreview from "./components/MusicXmlPreview.vue";
+import ReviewMarkdown from "./components/ReviewMarkdown.vue";
 import {
     isSupabaseConfigured,
     supabase,
@@ -1255,9 +1256,11 @@ function formatBytes(bytes) {
 
                 <div class="review-panel__body">
                     <p class="review-message">{{ reviewMessage }}</p>
-                    <pre v-if="reviewText" class="review-output">{{
-                        reviewText
-                    }}</pre>
+                    <ReviewMarkdown
+                        v-if="reviewText"
+                        class="review-output"
+                        :content="reviewText"
+                    />
                     <div v-else class="review-placeholder">
                         {{ reviewPlaceholder }}
                     </div>
