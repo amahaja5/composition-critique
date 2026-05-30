@@ -1,6 +1,5 @@
 <script setup>
-import { computed, markRaw, onMounted, onUnmounted, ref } from "vue";
-import MusicXmlPreview from "./components/MusicXmlPreview.vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import ReviewMarkdown from "./components/ReviewMarkdown.vue";
 import {
     isSupabaseConfigured,
@@ -35,6 +34,7 @@ const routePath = ref(normalizePath(window.location.pathname));
 
 let authSubscription = null;
 let reviewAbortController = null;
+const pdfPreviewUrls = new Set();
 
 const reviewStreamUrl =
     (import.meta.env.VITE_REVIEW_STREAM_URL ?? "/api/review-stream").trim() ||
@@ -54,7 +54,7 @@ const legalPages = [
             },
             {
                 title: "Uploaded Content",
-                body: "You retain ownership of PDFs, MusicXML files, metadata, and other materials you upload. You grant Composition Critique a limited license to store, process, display, and transmit that content only as needed to operate and improve the service.",
+                body: "You retain ownership of PDFs, metadata, and other materials you upload. You grant Composition Critique a limited license to store, process, display, and transmit that content only as needed to operate and improve the service.",
             },
             {
                 title: "Acceptable Use",
@@ -133,10 +133,10 @@ const hasSelectionErrors = computed(() =>
 const hasSubmittedUpload = computed(
     () => uploadStatus.value === "success" && lastUpload.value?.assets?.length,
 );
-const musicXmlPreviewAssets = computed(
+const pdfPreviewAssets = computed(
     () =>
         lastUpload.value?.assets?.filter(
-            (asset) => asset.assetType === "musicxml",
+            (asset) => asset.assetType === "pdf" && asset.previewUrl,
         ) ?? [],
 );
 const reviewPanelTitle = computed(() => {
@@ -264,6 +264,7 @@ onUnmounted(() => {
     window.removeEventListener("popstate", syncRoute);
     authSubscription?.unsubscribe();
     abortReviewStream();
+    revokePdfPreviewUrls();
 });
 
 function normalizePath(pathname) {
@@ -408,10 +409,12 @@ async function signOut() {
         return;
     }
 
+    resetUpload();
     logAuthEvent("sign_out_succeeded");
 }
 
 function handleFileSelection(event) {
+    revokePdfPreviewUrls();
     const files = Array.from(event.target.files ?? []);
     selectedFiles.value = files.map((file) => {
         const validation = validateCompositionFile(file);
@@ -439,6 +442,7 @@ function removeSelectedFile(id) {
 
 function resetUpload() {
     abortReviewStream();
+    revokePdfPreviewUrls();
     selectedFiles.value = [];
     uploadStatus.value = "idle";
     uploadMessage.value = "";
@@ -457,6 +461,7 @@ async function uploadFiles() {
     }
 
     abortReviewStream();
+    revokePdfPreviewUrls();
     resetReviewPanel("Review will start after the upload completes.");
     uploadStatus.value = "uploading";
     uploadMessage.value = "Verifying signed-in user.";
@@ -588,7 +593,6 @@ async function uploadFiles() {
             continue;
         }
 
-        item.preview = await createMusicXmlPreview(item, mimeType);
         item.status = "uploaded";
         uploaded.push(item);
         await logUploadEvent({
@@ -603,6 +607,8 @@ async function uploadFiles() {
         });
     }
 
+    const shouldCreatePreviews = failed.length === 0;
+
     lastUpload.value = {
         compositionId,
         title,
@@ -610,7 +616,7 @@ async function uploadFiles() {
             id: item.id,
             name: item.file.name,
             assetType: item.assetType,
-            preview: item.preview,
+            previewUrl: shouldCreatePreviews ? createPdfPreviewUrl(item) : "",
             size: item.file.size,
         })),
         failedAssets: failed.map((item) => ({
@@ -634,36 +640,21 @@ async function uploadFiles() {
     }
 }
 
-async function createMusicXmlPreview(item, mimeType) {
-    if (item.assetType !== "musicxml") {
-        return null;
+function createPdfPreviewUrl(item) {
+    if (item.assetType !== "pdf") {
+        return "";
     }
 
-    try {
-        if (mimeType === "application/vnd.recordare.musicxml-compressed") {
-            return {
-                isCompressed: true,
-                musicXml: "",
-                musicXmlBuffer: markRaw(await item.file.arrayBuffer()),
-            };
-        }
+    const previewUrl = URL.createObjectURL(item.file);
+    pdfPreviewUrls.add(previewUrl);
+    return previewUrl;
+}
 
-        return {
-            isCompressed: false,
-            musicXml: await item.file.text(),
-            musicXmlBuffer: null,
-        };
-    } catch (previewError) {
-        return {
-            error:
-                previewError instanceof Error
-                    ? previewError.message
-                    : "Unable to prepare this MusicXML preview.",
-            isCompressed: false,
-            musicXml: "",
-            musicXmlBuffer: null,
-        };
-    }
+function revokePdfPreviewUrls() {
+    pdfPreviewUrls.forEach((previewUrl) => {
+        URL.revokeObjectURL(previewUrl);
+    });
+    pdfPreviewUrls.clear();
 }
 
 async function logUploadEvent({
@@ -1082,8 +1073,8 @@ function formatBytes(bytes) {
                         <h2 id="upload-title">
                             {{
                                 hasSubmittedUpload
-                                    ? "Submitted assets"
-                                    : "PDF and MusicXML assets"
+                                    ? "Submitted PDF"
+                                    : "PDF score"
                             }}
                         </h2>
                     </div>
@@ -1131,17 +1122,41 @@ function formatBytes(bytes) {
                     </div>
 
                     <div
-                        v-if="musicXmlPreviewAssets.length"
-                        class="score-preview-list"
+                        v-if="pdfPreviewAssets.length"
+                        class="pdf-preview-list"
                     >
-                        <MusicXmlPreview
-                            v-for="asset in musicXmlPreviewAssets"
+                        <article
+                            v-for="asset in pdfPreviewAssets"
                             :key="asset.id"
-                            :file-name="asset.name"
-                            :is-compressed="asset.preview?.isCompressed"
-                            :music-xml="asset.preview?.musicXml"
-                            :music-xml-buffer="asset.preview?.musicXmlBuffer"
-                        />
+                            class="pdf-preview"
+                        >
+                            <div class="pdf-preview__header">
+                                <div>
+                                    <p class="pdf-preview__eyebrow">
+                                        Score preview
+                                    </p>
+                                    <h3>{{ asset.name }}</h3>
+                                </div>
+                                <a
+                                    class="button button--compact"
+                                    :href="asset.previewUrl"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    Open PDF
+                                </a>
+                            </div>
+                            <object
+                                class="pdf-preview__frame"
+                                :data="asset.previewUrl"
+                                type="application/pdf"
+                            >
+                                <p class="pdf-preview__fallback">
+                                    PDF preview is unavailable in this browser.
+                                    Open the PDF from the link above.
+                                </p>
+                            </object>
+                        </article>
                     </div>
                 </div>
 
@@ -1159,7 +1174,7 @@ function formatBytes(bytes) {
                     />
 
                     <label class="file-drop" for="composition-files">
-                        <span>Choose PDF, MusicXML, XML, or MXL files</span>
+                        <span>Choose PDF score files</span>
                         <small>{{ selectedFiles.length }} selected</small>
                     </label>
                     <input

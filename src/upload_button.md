@@ -1,5 +1,5 @@
 Goal
-Build a Vue upload flow for composition source files: PDF scores and MusicXML files.
+Build a Vue upload flow for composition source files: PDF scores.
 The UI starts as an upload button, but the system should handle validation,
 storage, ownership, metadata, logging, and association between related files.
 
@@ -28,7 +28,7 @@ button -> upload screen -> file picker -> client validation -> Supabase Storage 
 -> Postgres metadata row -> upload event log -> optional background processing
 
 Storage approach
-Use Supabase Storage for PDF and MusicXML file blobs.
+Use Supabase Storage for PDF score blobs.
 Use Postgres for structured records:
 - who uploaded the file
 - when it was uploaded
@@ -57,7 +57,7 @@ composition_assets
 - id
 - composition_id
 - owner_id
-- asset_type: pdf | musicxml
+- asset_type: pdf
 - original_filename
 - storage_bucket
 - storage_path
@@ -79,21 +79,23 @@ upload_events
 - metadata_json
 - created_at
 
-Associating PDF and MusicXML
+Associating PDFs
 Use a composition as the parent entity. A composition can have zero or more assets.
-This lets the PDF and MusicXML be uploaded together or at different times while
-still becoming part of the same composition.
+This lets one or more PDFs become part of the same composition.
+
+The database enum may keep historical MusicXML compatibility, but the active
+frontend workflow is PDF-only.
 
 Recommended behavior:
-- If the user uploads both files together, create one composition and attach both assets.
-- If the user uploads one file first, create a composition with one asset.
-- If the user later uploads the matching file, attach it to the existing composition.
+- If the user uploads multiple PDFs together, create one composition and attach each asset.
+- If the user uploads one PDF first, create a composition with one asset.
+- If the user later uploads a replacement or alternate PDF, attach it to the existing composition.
 - If there is ambiguity, let the user choose the target composition.
 
 Validation
 
 Client-side validation:
-- Accept only PDF, MusicXML, compressed MusicXML if desired, and XML file extensions.
+- Accept only PDF files.
 - Enforce max file size before upload.
 - Show a clear error for unsupported types.
 - Do not rely on client validation for security.
@@ -102,8 +104,6 @@ Server-side validation:
 - Re-check MIME type and extension.
 - Enforce size limits.
 - Store files under user-scoped paths.
-- Reject suspicious or malformed XML.
-- Parse MusicXML with XXE disabled.
 - Treat PDFs as untrusted input.
 - Consider malware scanning before downstream processing.
 
@@ -119,7 +119,7 @@ The Vue component should model these states explicitly:
 
 The UI should support:
 - single-file upload
-- multi-file upload for PDF plus MusicXML
+- multi-file PDF upload
 - progress indicator
 - retry failed upload
 - remove selected file before upload
@@ -146,14 +146,12 @@ Scale considerations
 - Upload directly to Supabase Storage instead of proxying large files through the app server.
 - Keep Postgres rows small and metadata-focused.
 - Use checksums for deduplication and integrity checks.
-- Add background jobs later for preview generation, MusicXML parsing, or PDF analysis.
+- Add background jobs later for preview generation or PDF analysis.
 - Store generated previews or extracted artifacts in Storage, then reference them from Postgres.
 
 Open decisions
 - Maximum PDF size.
-- Maximum MusicXML/XML size.
-- Whether compressed MusicXML files are allowed.
-- Whether each composition can have multiple PDFs or multiple MusicXML versions.
+- Whether each composition can have multiple PDFs.
 - Whether replacing an asset creates a new version or overwrites the old asset.
 - Whether uploaded PDFs need malware scanning before they can be processed.
 - Whether long-context extraction should happen immediately, on demand, or as a background job.

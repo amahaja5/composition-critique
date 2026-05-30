@@ -3,7 +3,7 @@ Provide a sample Supabase configuration for the auth and upload designs.
 This sample assumes:
 - Vue 3 + Vite frontend
 - Supabase Auth with Google OAuth
-- Supabase Storage for uploaded file blobs
+- Supabase Storage for uploaded PDF score blobs
 - Postgres tables for composition metadata, asset metadata, and upload events
 - Row Level Security for all user-owned data
 
@@ -16,7 +16,14 @@ VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
 ```
 
-Do not put a service role key in the Vue app.
+Server-only Vercel environment variables:
+
+```sh
+ANTHROPIC_API_KEY=your-anthropic-api-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+```
+
+Do not put a service role key in the Vue app or expose it with a `VITE_` prefix.
 
 Local Supabase Google OAuth secret:
 
@@ -87,7 +94,17 @@ The checked-in production migration is
 that file as the source of truth when applying the upload schema to a Supabase
 project.
 
+Review capture for DPO/evaluation data is in
+`supabase/migrations/20260530120000_create_review_capture_schema.sql`. It
+creates `review_runs` and `review_responses`, grants writes to `service_role`,
+and lets authenticated users read only their own review rows.
+
 Create one private bucket:
+
+The current Vue upload flow is PDF-only. The bucket example below keeps the
+historical MusicXML MIME allowances so existing projects do not need an immediate
+database/storage migration; a later hardening pass can tighten the bucket to
+`application/pdf` only.
 
 ```sql
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -471,21 +488,8 @@ if (userError) throw userError
 const ownerId = userData.user.id
 const compositionId = crypto.randomUUID()
 const assetId = crypto.randomUUID()
-const assetType = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'musicxml'
-const musicXmlMimeTypes = [
-  'application/xml',
-  'text/xml',
-  'application/vnd.recordare.musicxml+xml',
-  'application/vnd.recordare.musicxml',
-  'application/vnd.recordare.musicxml-compressed',
-]
-const mimeType = assetType === 'pdf'
-  ? 'application/pdf'
-  : musicXmlMimeTypes.includes(file.type)
-    ? file.type
-    : file.name.toLowerCase().endsWith('.mxl')
-      ? 'application/vnd.recordare.musicxml-compressed'
-      : 'application/xml'
+const assetType = 'pdf'
+const mimeType = 'application/pdf'
 const uploadBody = file.type === mimeType ? file : new Blob([file], { type: mimeType })
 const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
 const storagePath = `user/${ownerId}/compositions/${compositionId}/${assetId}/${safeFilename}`

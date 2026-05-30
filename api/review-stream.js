@@ -1,12 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const MAX_XML_CHARS = 120_000;
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
 const COMPRESSED_MUSICXML_MIME_TYPE =
   "application/vnd.recordare.musicxml-compressed";
+const REVIEW_PROMPT_VERSION = "2026-05-30";
 
 const technicalPromptUrl = new URL(
   "../system_prompts/technical_review_system_prompt.md",
@@ -40,6 +41,9 @@ export default async function handler(req, res) {
     "X-Accel-Buffering": "no",
   });
   res.flushHeaders?.();
+
+  let captureSupabase = null;
+  let reviewRunId = null;
 
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -81,6 +85,7 @@ export default async function handler(req, res) {
         },
       },
     });
+    captureSupabase = createReviewCaptureClient(supabaseUrl);
 
     const { data: userData, error: userError } =
       await supabase.auth.getUser(token);
@@ -106,14 +111,29 @@ export default async function handler(req, res) {
 
     const anthropic = new Anthropic({ apiKey });
     const model = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
+    reviewRunId = randomUUID();
+    await createReviewRun(captureSupabase, {
+      assets,
+      compositionId,
+      model,
+      ownerId: userData.user.id,
+      reviewRunId,
+    });
 
     sendSse(res, "status", { message: "Analyzing submitted score." });
     const technicalReview = await streamAnthropicReview({
       anthropic,
+      captureSupabase,
+      compositionId,
       content: sourceContent,
       emitDeltas: false,
+      inputSummary: summarizeAnthropicContent(sourceContent),
       model,
+      ownerId: userData.user.id,
+      promptName: "technical_review_system_prompt",
+      responseKind: "technical_analysis",
       res,
+      reviewRunId,
       status: "Running technical review.",
       system: technicalPrompt,
     });
@@ -121,6 +141,8 @@ export default async function handler(req, res) {
     sendSse(res, "status", { message: "Writing composer-facing review." });
     await streamAnthropicReview({
       anthropic,
+      captureSupabase,
+      compositionId,
       content: [
         {
           type: "text",
@@ -133,14 +155,25 @@ export default async function handler(req, res) {
         },
       ],
       emitDeltas: true,
+      inputSummary: {
+        source: "technical_analysis_response",
+        technical_analysis_sha256: hashText(technicalReview),
+        technical_analysis_chars: technicalReview.length,
+      },
       model,
+      ownerId: userData.user.id,
+      promptName: "actionable_review_system_prompt",
+      responseKind: "composer_review",
       res,
+      reviewRunId,
       status: "Preparing actionable feedback.",
       system: actionablePrompt,
     });
 
-    sendSse(res, "done", { review_id: randomUUID() });
+    await completeReviewRun(captureSupabase, reviewRunId);
+    sendSse(res, "done", { review_id: reviewRunId });
   } catch (error) {
+    await failReviewRun(captureSupabase, reviewRunId, error);
     sendSse(res, "error", {
       message:
         error instanceof Error ? error.message : "Unable to create review.",
@@ -148,6 +181,21 @@ export default async function handler(req, res) {
   } finally {
     res.end();
   }
+}
+
+function createReviewCaptureClient(supabaseUrl) {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    console.warn("[review] SUPABASE_SERVICE_ROLE_KEY is missing; review capture is disabled.");
+    return null;
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
 
 function sendSse(res, event, payload) {
@@ -304,36 +352,229 @@ function hasExtension(filename, extension) {
 
 async function streamAnthropicReview({
   anthropic,
+  captureSupabase,
+  compositionId,
   content,
   emitDeltas = true,
+  inputSummary = {},
   model,
+  ownerId,
+  promptName,
+  responseKind,
   res,
+  reviewRunId,
   status,
   system,
 }) {
   let output = "";
+  let errorMessage = null;
+  let messageJson = {};
+  let usageJson = {};
+  const responseId = randomUUID();
+  const streamEvents = [];
   sendSse(res, "status", { message: status });
 
-  const stream = await anthropic.messages.create({
-    max_tokens: 1600,
-    cache_control: { type: "ephemeral" },
-    messages: [{ role: "user", content }],
-    model,
-    stream: true,
-    system,
-  });
+  try {
+    const stream = await anthropic.messages.create({
+      max_tokens: 1600,
+      cache_control: { type: "ephemeral" },
+      messages: [{ role: "user", content }],
+      model,
+      stream: true,
+      system,
+    });
 
-  for await (const event of stream) {
-    if (
-      event.type === "content_block_delta" &&
-      event.delta?.type === "text_delta"
-    ) {
-      output += event.delta.text;
-      if (emitDeltas) {
-        sendSse(res, "delta", { text: event.delta.text });
+    for await (const event of stream) {
+      streamEvents.push(toJson(event));
+      if (event.type === "message_start") {
+        messageJson = toJson(event.message);
+        usageJson = mergeUsage(usageJson, event.message?.usage);
+      }
+      if (event.type === "message_delta") {
+        messageJson = { ...messageJson, delta: toJson(event.delta) };
+        usageJson = mergeUsage(usageJson, event.usage);
+      }
+      if (
+        event.type === "content_block_delta" &&
+        event.delta?.type === "text_delta"
+      ) {
+        output += event.delta.text;
+        if (emitDeltas) {
+          sendSse(res, "delta", { text: event.delta.text });
+        }
       }
     }
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Anthropic response failed.";
+    throw error;
+  } finally {
+    await recordReviewResponse(captureSupabase, {
+      compositionId,
+      errorMessage,
+      inputSummary,
+      messageJson,
+      model,
+      output,
+      ownerId,
+      promptName,
+      responseId,
+      responseKind,
+      reviewRunId,
+      status: errorMessage ? "failed" : "completed",
+      streamEvents,
+      system,
+      usageJson,
+    });
   }
 
   return output;
+}
+
+async function createReviewRun(
+  supabase,
+  { assets, compositionId, model, ownerId, reviewRunId },
+) {
+  if (!supabase) return;
+
+  const { error } = await supabase.from("review_runs").insert({
+    id: reviewRunId,
+    composition_id: compositionId,
+    owner_id: ownerId,
+    provider: "anthropic",
+    model,
+    status: "running",
+    metadata_json: {
+      asset_count: assets.length,
+      asset_types: assets.map((asset) => asset.asset_type),
+    },
+  });
+
+  if (error) {
+    console.warn("[review] Unable to create review run.", error);
+  }
+}
+
+async function completeReviewRun(supabase, reviewRunId) {
+  if (!supabase || !reviewRunId) return;
+
+  const { error } = await supabase
+    .from("review_runs")
+    .update({
+      completed_at: new Date().toISOString(),
+      status: "completed",
+    })
+    .eq("id", reviewRunId);
+
+  if (error) {
+    console.warn("[review] Unable to complete review run.", error);
+  }
+}
+
+async function failReviewRun(supabase, reviewRunId, error) {
+  if (!supabase || !reviewRunId) return;
+
+  const { error: updateError } = await supabase
+    .from("review_runs")
+    .update({
+      completed_at: new Date().toISOString(),
+      error_message:
+        error instanceof Error ? error.message : "Review stream failed.",
+      status: "failed",
+    })
+    .eq("id", reviewRunId);
+
+  if (updateError) {
+    console.warn("[review] Unable to mark review run failed.", updateError);
+  }
+}
+
+async function recordReviewResponse(
+  supabase,
+  {
+    compositionId,
+    errorMessage,
+    inputSummary,
+    messageJson,
+    model,
+    output,
+    ownerId,
+    promptName,
+    responseId,
+    responseKind,
+    reviewRunId,
+    status,
+    streamEvents,
+    system,
+    usageJson,
+  },
+) {
+  if (!supabase || !reviewRunId) return;
+
+  const { error } = await supabase.from("review_responses").insert({
+    id: responseId,
+    review_run_id: reviewRunId,
+    composition_id: compositionId,
+    owner_id: ownerId,
+    response_kind: responseKind,
+    provider: "anthropic",
+    model,
+    prompt_name: promptName,
+    prompt_version: REVIEW_PROMPT_VERSION,
+    system_prompt: system,
+    input_summary_json: inputSummary,
+    response_text: output,
+    response_json: {
+      message: messageJson,
+      output_text: output,
+    },
+    stream_events_json: streamEvents,
+    usage_json: usageJson,
+    status,
+    error_message: errorMessage,
+    completed_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    console.warn("[review] Unable to store review response.", error);
+  }
+}
+
+function summarizeAnthropicContent(content) {
+  return {
+    blocks: content.map((block) => {
+      if (block.type === "text") {
+        return {
+          type: "text",
+          char_count: block.text.length,
+          sha256: hashText(block.text),
+          preview: block.text.slice(0, 500),
+        };
+      }
+
+      if (block.type === "document") {
+        return {
+          type: "document",
+          media_type: block.source?.media_type ?? null,
+          source_type: block.source?.type ?? null,
+          data_sha256: hashText(block.source?.data ?? ""),
+          encoded_byte_count: block.source?.data?.length ?? 0,
+        };
+      }
+
+      return { type: block.type ?? "unknown" };
+    }),
+  };
+}
+
+function mergeUsage(current, next) {
+  return next ? { ...current, ...toJson(next) } : current;
+}
+
+function toJson(value) {
+  return value ? JSON.parse(JSON.stringify(value)) : {};
+}
+
+function hashText(value) {
+  return createHash("sha256").update(value).digest("hex");
 }

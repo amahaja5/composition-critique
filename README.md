@@ -4,7 +4,7 @@ Vue app for authenticated composition uploads and critique workflows.
 
 The app currently wires:
 - Google OAuth through Supabase Auth
-- PDF, MusicXML, XML, and MXL file selection
+- PDF score selection and preview
 - Supabase Storage uploads to the `compositions` bucket
 - Postgres inserts for `compositions`, `composition_assets`, and `upload_events`
 - ownership via the logged-in Supabase user id on every submission row and path
@@ -20,17 +20,24 @@ VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
 VITE_REVIEW_STREAM_URL=/api/review-stream
 ANTHROPIC_API_KEY=your-anthropic-api-key
 ANTHROPIC_MODEL=claude-opus-4-8
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
 
 The browser app must never receive a Supabase service role key or Anthropic API
-key. `ANTHROPIC_API_KEY` is used only by the Vercel API function.
+key. `ANTHROPIC_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are used only by the
+Vercel API function.
 
 ## Review Streaming
 
 The app posts uploaded composition ids to `/api/review-stream`. That Vercel API
-function validates the Supabase user session, loads the submitted files, runs two
+function validates the Supabase user session, loads the submitted PDF, runs two
 Anthropic streaming review passes using prompts in `system_prompts/`, and sends
 SSE events back to the browser.
+
+The technical pass is kept private, while the composer-facing pass streams to
+the UI. When `SUPABASE_SERVICE_ROLE_KEY` is configured, both full Anthropic
+responses are stored in `review_responses` under a shared `review_runs` row for
+DPO/evaluation preparation.
 
 ## Development
 
@@ -59,6 +66,11 @@ For the production upload database and Storage wiring, run
 in the Supabase SQL editor or through the Supabase CLI. This creates the private
 bucket, `compositions`, `composition_assets`, `upload_events`, grants, RLS
 policies, and Storage object policies needed for authenticated uploads.
+
+For review/DPO capture, run
+[supabase/migrations/20260530120000_create_review_capture_schema.sql](supabase/migrations/20260530120000_create_review_capture_schema.sql).
+This creates `review_runs` and `review_responses`, grants server-side write
+access to `service_role`, and allows users to read only their own review rows.
 
 If the Supabase SQL editor limits you to 100 lines, run the files in
 [supabase/manual_sql](supabase/manual_sql) in numeric order instead.
