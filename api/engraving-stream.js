@@ -382,7 +382,7 @@ async function renderPdfPages({ asset, maxPages, pdfBytes, renderScale }) {
       }
     }
   } finally {
-    await pdf.destroy();
+    await loadingTask.destroy();
   }
 
   return pages;
