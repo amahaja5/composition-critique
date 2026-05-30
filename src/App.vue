@@ -1073,45 +1073,15 @@ function formatBytes(bytes) {
                         <h2 id="upload-title">
                             {{
                                 hasSubmittedUpload
-                                    ? "Submitted PDF"
+                                    ? lastUpload.title
                                     : "PDF score"
                             }}
                         </h2>
+                        <p v-if="hasSubmittedUpload" class="upload-subtitle">
+                            {{ lastUpload.uploaded }} uploaded
+                        </p>
                     </div>
-                    <span class="status-pill">{{ uploadStatus }}</span>
-                </div>
-
-                <div v-if="hasSubmittedUpload" class="submitted-workspace">
-                    <div class="submission-summary">
-                        <div class="submission-summary__header">
-                            <div>
-                                <strong>{{ lastUpload.title }}</strong>
-                                <span>
-                                    {{ lastUpload.uploaded }}
-                                    file{{
-                                        lastUpload.uploaded === 1 ? "" : "s"
-                                    }}
-                                    submitted
-                                </span>
-                            </div>
-                            <span class="status-pill status-pill--success">
-                                {{ lastUpload.uploaded }} uploaded
-                            </span>
-                        </div>
-
-                        <ul>
-                            <li
-                                v-for="asset in lastUpload.assets"
-                                :key="asset.id"
-                            >
-                                <span>{{ asset.name }}</span>
-                                <small>
-                                    {{ asset.assetType }} |
-                                    {{ formatBytes(asset.size) }}
-                                </small>
-                            </li>
-                        </ul>
-
+                    <div v-if="hasSubmittedUpload" class="submitted-actions">
                         <button
                             class="button button--compact"
                             type="button"
@@ -1119,8 +1089,20 @@ function formatBytes(bytes) {
                         >
                             Submit another
                         </button>
+                        <a
+                            v-if="pdfPreviewAssets[0]"
+                            class="button button--compact"
+                            :href="pdfPreviewAssets[0].previewUrl"
+                            target="_blank"
+                            rel="noreferrer"
+                        >
+                            PDF
+                        </a>
                     </div>
+                    <span v-else class="status-pill">{{ uploadStatus }}</span>
+                </div>
 
+                <div v-if="hasSubmittedUpload" class="submitted-workspace">
                     <div
                         v-if="pdfPreviewAssets.length"
                         class="pdf-preview-list"
@@ -1130,22 +1112,6 @@ function formatBytes(bytes) {
                             :key="asset.id"
                             class="pdf-preview"
                         >
-                            <div class="pdf-preview__header">
-                                <div>
-                                    <p class="pdf-preview__eyebrow">
-                                        Score preview
-                                    </p>
-                                    <h3>{{ asset.name }}</h3>
-                                </div>
-                                <a
-                                    class="button button--compact"
-                                    :href="asset.previewUrl"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                >
-                                    Open PDF
-                                </a>
-                            </div>
                             <object
                                 class="pdf-preview__frame"
                                 :data="asset.previewUrl"

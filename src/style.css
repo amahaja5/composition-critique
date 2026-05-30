@@ -494,94 +494,34 @@ input:disabled {
   color: var(--danger) !important;
 }
 
+.upload-subtitle {
+  margin: 8px 0 0;
+  color: var(--primary-strong);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.submitted-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .submitted-workspace,
 .pdf-preview-list {
   display: grid;
-  gap: 12px;
-}
-
-.submission-summary {
-  display: grid;
-  gap: 8px;
-  border: 1px solid #b7d6c8;
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--primary-soft);
-}
-
-.submission-summary__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.submission-summary__header strong,
-.submission-summary__header span {
-  display: block;
-}
-
-.submission-summary__header span,
-.submission-summary small {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.submission-summary ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.submission-summary li {
-  display: inline-grid;
-  max-width: 100%;
-  gap: 2px;
-  border: 1px solid #b7d6c8;
-  border-radius: 6px;
-  padding: 5px 8px;
-  background: rgba(255, 255, 255, 0.58);
-}
-
-.submission-summary li span {
-  font-weight: 800;
-  overflow-wrap: anywhere;
+  gap: 0;
 }
 
 .pdf-preview {
   display: grid;
-  gap: 10px;
+  gap: 0;
 }
 
-.pdf-preview__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.pdf-preview__eyebrow,
-.pdf-preview h3,
 .pdf-preview__fallback {
   margin: 0;
-}
-
-.pdf-preview__eyebrow {
-  color: var(--accent);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.pdf-preview h3 {
-  margin-top: 4px;
-  font-size: 1rem;
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
 }
 
 .pdf-preview__frame {
@@ -806,10 +746,13 @@ input:disabled {
 
   .section-heading,
   .file-row,
-  .action-row,
-  .pdf-preview__header {
+  .action-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .submitted-actions {
+    justify-content: flex-start;
   }
 
   .pdf-preview__frame {

@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+import { WorkerMessageHandler } from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 
 const REVIEW_PROMPT_VERSION = "2026-05-30";
 const DEFAULT_QWEN_MODEL = "Qwen/Qwen3-VL-8B-Instruct";
@@ -13,6 +14,8 @@ const DEFAULT_MAX_PAGES = 12;
 const DEFAULT_PAGES_PER_CALL = 3;
 const DEFAULT_RENDER_SCALE = 2;
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
+
+globalThis.pdfjsWorker ??= { WorkerMessageHandler };
 
 const pagePromptUrl = new URL(
   "../system_prompts/engraving_page_analysis_system_prompt.md",
