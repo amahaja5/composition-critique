@@ -8,7 +8,7 @@ The app currently wires:
 - Supabase Storage uploads to the `compositions` bucket
 - Postgres inserts for `compositions`, `composition_assets`, and `upload_events`
 - ownership via the logged-in Supabase user id on every submission row and path
-- live review streaming through a server-side Anthropic review endpoint
+- live engraving review streaming through a server-side Qwen + Haiku endpoint
 
 ## Environment
 
@@ -17,27 +17,33 @@ Create `.env.local` from `.env.example`:
 ```sh
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
-VITE_REVIEW_STREAM_URL=/api/review-stream
+VITE_REVIEW_STREAM_URL=/api/engraving-stream
+QWEN_OPENAI_API_KEY=your-qwen-openai-compatible-api-key
+QWEN_OPENAI_BASE_URL=https://your-qwen-openai-compatible-endpoint/v1
+QWEN_OPENAI_MODEL=Qwen/Qwen3-VL-8B-Instruct
+QWEN_MAX_PAGES=12
+QWEN_PAGES_PER_CALL=3
+QWEN_RENDER_SCALE=2
 ANTHROPIC_API_KEY=your-anthropic-api-key
-ANTHROPIC_MODEL=claude-opus-4-8
+ANTHROPIC_POLISH_MODEL=claude-haiku-4-5
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
 
-The browser app must never receive a Supabase service role key or Anthropic API
-key. `ANTHROPIC_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are used only by the
-Vercel API function.
+The browser app must never receive a Supabase service role key, Qwen API key, or
+Anthropic API key. Those secrets are used only by the Vercel API function.
 
-## Review Streaming
+## Engraving Review Streaming
 
-The app posts uploaded composition ids to `/api/review-stream`. That Vercel API
-function validates the Supabase user session, loads the submitted PDF, runs two
-Anthropic streaming review passes using prompts in `system_prompts/`, and sends
-SSE events back to the browser.
+The app posts uploaded composition ids to `/api/engraving-stream`. That Vercel
+API function validates the Supabase user session, loads the submitted PDF,
+renders pages to images, asks Qwen for engraving findings, then streams a Haiku
+polished Markdown report back to the browser.
 
-The technical pass is kept private, while the composer-facing pass streams to
-the UI. When `SUPABASE_SERVICE_ROLE_KEY` is configured, both full Anthropic
-responses are stored in `review_responses` under a shared `review_runs` row for
-DPO/evaluation preparation.
+When `SUPABASE_SERVICE_ROLE_KEY` is configured, Qwen findings, Haiku polish
+responses, and normalized engraving findings are stored under a shared
+`review_runs` row for DPO/evaluation preparation. Prompt files are loaded from
+`system_prompts/`, which is intentionally ignored because those prompts live in
+a separate repository.
 
 ## Development
 

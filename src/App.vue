@@ -26,7 +26,7 @@ const uploadMessage = ref("");
 const compositionTitle = ref("");
 const lastUpload = ref(null);
 const reviewStatus = ref("idle");
-const reviewMessage = ref("Review will appear here after submission.");
+const reviewMessage = ref("Engraving review will appear here after submission.");
 const reviewText = ref("");
 const reviewError = ref("");
 const reviewId = ref("");
@@ -37,8 +37,8 @@ let reviewAbortController = null;
 const pdfPreviewUrls = new Set();
 
 const reviewStreamUrl =
-    (import.meta.env.VITE_REVIEW_STREAM_URL ?? "/api/review-stream").trim() ||
-    "/api/review-stream";
+    (import.meta.env.VITE_REVIEW_STREAM_URL ?? "/api/engraving-stream").trim() ||
+    "/api/engraving-stream";
 
 const legalPages = [
     {
@@ -140,14 +140,14 @@ const pdfPreviewAssets = computed(
         ) ?? [],
 );
 const reviewPanelTitle = computed(() => {
-    if (reviewStatus.value === "complete") return "Review complete";
-    if (reviewStatus.value === "error") return "Review interrupted";
-    if (reviewStatus.value === "not_configured") return "Review stream not configured";
+    if (reviewStatus.value === "complete") return "Engraving review complete";
+    if (reviewStatus.value === "error") return "Engraving review interrupted";
+    if (reviewStatus.value === "not_configured") return "Engraving review not configured";
     if (["connecting", "waiting", "streaming"].includes(reviewStatus.value)) {
-        return "Live review";
+        return "Live engraving review";
     }
 
-    return "Review";
+    return "Engraving review";
 });
 const reviewStatusLabel = computed(() => {
     const labels = {
@@ -164,18 +164,18 @@ const reviewStatusLabel = computed(() => {
 });
 const reviewPlaceholder = computed(() => {
     if (reviewStatus.value === "not_configured") {
-        return "Add VITE_REVIEW_STREAM_URL or deploy the review stream endpoint.";
+        return "Add VITE_REVIEW_STREAM_URL or deploy the engraving stream endpoint.";
     }
 
     if (reviewStatus.value === "connecting" || reviewStatus.value === "waiting") {
-        return "Waiting for released review output.";
+        return "Waiting for engraving review output.";
     }
 
     if (reviewStatus.value === "error") {
         return "No review text was received.";
     }
 
-    return "Review will appear here after submission.";
+    return "Engraving review will appear here after submission.";
 });
 const canReconnectReview = computed(
     () => reviewStatus.value === "error" && Boolean(lastUpload.value?.compositionId),
@@ -462,7 +462,7 @@ async function uploadFiles() {
 
     abortReviewStream();
     revokePdfPreviewUrls();
-    resetReviewPanel("Review will start after the upload completes.");
+    resetReviewPanel("Engraving review will start after the upload completes.");
     uploadStatus.value = "uploading";
     uploadMessage.value = "Verifying signed-in user.";
 
@@ -472,7 +472,7 @@ async function uploadFiles() {
         uploadStatus.value = "error";
         uploadMessage.value =
             userError?.message ?? "Sign in again before submitting files.";
-        resetReviewPanel("Review will appear after a successful submission.");
+        resetReviewPanel("Engraving review will appear after a successful submission.");
         return;
     }
 
@@ -491,7 +491,7 @@ async function uploadFiles() {
     if (compositionResult.error) {
         uploadStatus.value = "error";
         uploadMessage.value = compositionResult.error.message;
-        resetReviewPanel("Review will appear after a successful submission.");
+        resetReviewPanel("Engraving review will appear after a successful submission.");
         return;
     }
 
@@ -634,7 +634,7 @@ async function uploadFiles() {
         : `${uploaded.length} file${uploaded.length === 1 ? "" : "s"} uploaded.`;
 
     if (failed.length) {
-        resetReviewPanel("Review will start after all files submit successfully.");
+        resetReviewPanel("Engraving review will start after all files submit successfully.");
     } else if (uploaded.length) {
         startReviewStream(compositionId);
     }
@@ -679,7 +679,7 @@ async function logUploadEvent({
     }
 }
 
-function resetReviewPanel(message = "Review will appear here after submission.") {
+function resetReviewPanel(message = "Engraving review will appear here after submission.") {
     reviewStatus.value = "idle";
     reviewMessage.value = message;
     reviewText.value = "";
@@ -708,23 +708,23 @@ async function startReviewStream(compositionId) {
 
     if (!reviewStreamUrl) {
         reviewStatus.value = "not_configured";
-        reviewMessage.value = "Review stream not configured.";
+        reviewMessage.value = "Engraving review stream not configured.";
         return;
     }
 
     const { data, error } = await supabase.auth.getSession();
     if (error || !data.session?.access_token) {
         reviewStatus.value = "error";
-        reviewMessage.value = "Unable to start review.";
+        reviewMessage.value = "Unable to start engraving review.";
         reviewError.value =
-            error?.message ?? "Sign in again before starting the review stream.";
+            error?.message ?? "Sign in again before starting the engraving review stream.";
         return;
     }
 
     const controller = new AbortController();
     reviewAbortController = controller;
     reviewStatus.value = "connecting";
-    reviewMessage.value = "Connecting to review stream.";
+    reviewMessage.value = "Connecting to engraving review stream.";
 
     try {
         const response = await fetch(reviewStreamUrl, {
@@ -742,23 +742,23 @@ async function startReviewStream(compositionId) {
 
         if (!response.ok) {
             throw new Error(
-                `Review stream failed with ${response.status} ${response.statusText}`.trim(),
+                `Engraving review stream failed with ${response.status} ${response.statusText}`.trim(),
             );
         }
 
         if (!response.body) {
-            throw new Error("Review stream response did not include a readable body.");
+            throw new Error("Engraving review stream response did not include a readable body.");
         }
 
         reviewStatus.value = "waiting";
-        reviewMessage.value = "Waiting for review.";
+        reviewMessage.value = "Waiting for engraving review.";
         await readReviewSseStream(response.body, controller);
 
         if (reviewAbortController === controller && reviewStatus.value !== "error") {
             reviewStatus.value = "complete";
             reviewMessage.value = reviewText.value
-                ? "Review complete."
-                : "Review stream closed.";
+                ? "Engraving review complete."
+                : "Engraving review stream closed.";
         }
     } catch (error) {
         if (controller.signal.aborted) {
@@ -766,9 +766,9 @@ async function startReviewStream(compositionId) {
         }
 
         reviewStatus.value = "error";
-        reviewMessage.value = "Review stream interrupted.";
+        reviewMessage.value = "Engraving review stream interrupted.";
         reviewError.value =
-            error instanceof Error ? error.message : "Unable to stream review.";
+            error instanceof Error ? error.message : "Unable to stream engraving review.";
     } finally {
         if (reviewAbortController === controller) {
             reviewAbortController = null;
@@ -847,7 +847,7 @@ function handleReviewSseEvent({ event, data }) {
 
     if (event === "status") {
         reviewStatus.value = reviewText.value ? "streaming" : "waiting";
-        reviewMessage.value = payload.message ?? "Waiting for review.";
+        reviewMessage.value = payload.message ?? "Waiting for engraving review.";
         return;
     }
 
@@ -857,21 +857,21 @@ function handleReviewSseEvent({ event, data }) {
             reviewText.value += nextText;
         }
         reviewStatus.value = "streaming";
-        reviewMessage.value = payload.message ?? "Review streaming.";
+        reviewMessage.value = payload.message ?? "Engraving review streaming.";
         return;
     }
 
     if (event === "done") {
         reviewStatus.value = "complete";
-        reviewMessage.value = "Review complete.";
+        reviewMessage.value = "Engraving review complete.";
         reviewId.value = payload.review_id ?? payload.id ?? "";
         return;
     }
 
     if (event === "error") {
         reviewStatus.value = "error";
-        reviewMessage.value = "Review stream interrupted.";
-        reviewError.value = payload.message ?? "Unable to stream review.";
+        reviewMessage.value = "Engraving review stream interrupted.";
+        reviewError.value = payload.message ?? "Unable to stream engraving review.";
     }
 }
 
