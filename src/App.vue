@@ -21,6 +21,9 @@ const authReady = ref(false);
 const session = ref(null);
 const authError = ref("");
 const selectedFiles = ref([]);
+const instrumentationMode = ref("auto");
+const selectedInstruments = ref([]);
+const selectedDocType = ref("auto");
 const uploadStatus = ref("idle");
 const uploadMessage = ref("");
 const compositionTitle = ref("");
@@ -41,6 +44,24 @@ const pdfPreviewUrls = new Set();
 const reviewStreamUrl =
     (import.meta.env.VITE_REVIEW_STREAM_URL ?? "/api/engraving-stream").trim() ||
     "/api/engraving-stream";
+
+const INSTRUMENT_OPTIONS = [
+    { label: "Violin", value: "violin" },
+    { label: "Viola", value: "viola" },
+    { label: "Cello", value: "cello" },
+    { label: "Guitar", value: "guitar" },
+    { label: "Piano", value: "piano" },
+    { label: "Voice", value: "voice" },
+    { label: "Flute", value: "flute" },
+    { label: "Clarinet", value: "clarinet" },
+    { label: "Percussion", value: "percussion" },
+];
+
+const DOC_TYPE_OPTIONS = [
+    { label: "Auto", value: "auto" },
+    { label: "Score", value: "score" },
+    { label: "Part", value: "part" },
+];
 
 const legalPages = [
     {
@@ -193,6 +214,7 @@ const canPolishReview = computed(
         Boolean(reviewText.value.trim()) &&
         Boolean(lastUpload.value?.compositionId),
 );
+const reviewRoutingPayload = computed(() => buildReviewRoutingPayload());
 const authCallbackUrl = computed(() => `${window.location.origin}/auth/callback`);
 const isAuthCallbackRoute = computed(() => routePath.value === "/auth/callback");
 const isOauthConsentRoute = computed(
@@ -453,10 +475,44 @@ function removeSelectedFile(id) {
     uploadStatus.value = selectedFiles.value.length ? "ready" : "idle";
 }
 
+function setInstrumentationMode(mode) {
+    instrumentationMode.value = mode;
+    if (mode === "auto") {
+        selectedInstruments.value = [];
+    }
+}
+
+function toggleInstrument(instrument) {
+    if (instrumentationMode.value === "auto") {
+        instrumentationMode.value = "manual";
+    }
+
+    selectedInstruments.value = selectedInstruments.value.includes(instrument)
+        ? selectedInstruments.value.filter((item) => item !== instrument)
+        : [...selectedInstruments.value, instrument];
+}
+
+function buildReviewRoutingPayload() {
+    const payload = {};
+
+    if (instrumentationMode.value === "manual" && selectedInstruments.value.length) {
+        payload.instruments = [...selectedInstruments.value];
+    }
+
+    if (selectedDocType.value !== "auto") {
+        payload.doc_type = selectedDocType.value;
+    }
+
+    return Object.keys(payload).length ? payload : null;
+}
+
 function resetUpload() {
     abortReviewStream();
     revokePdfPreviewUrls();
     selectedFiles.value = [];
+    instrumentationMode.value = "auto";
+    selectedInstruments.value = [];
+    selectedDocType.value = "auto";
     uploadStatus.value = "idle";
     uploadMessage.value = "";
     compositionTitle.value = "";
@@ -622,6 +678,8 @@ async function uploadFiles() {
 
     const shouldCreatePreviews = failed.length === 0;
 
+    const reviewRouting = reviewRoutingPayload.value;
+
     lastUpload.value = {
         compositionId,
         title,
@@ -639,6 +697,7 @@ async function uploadFiles() {
         })),
         uploaded: uploaded.length,
         failed: failed.length,
+        reviewRouting,
     };
 
     uploadStatus.value = failed.length ? "error" : "success";
@@ -649,7 +708,7 @@ async function uploadFiles() {
     if (failed.length) {
         resetReviewPanel("Engraving review will start after all files submit successfully.");
     } else if (uploaded.length) {
-        startReviewStream(compositionId);
+        startReviewStream(compositionId, { routing: reviewRouting });
     }
 }
 
@@ -712,7 +771,9 @@ function reconnectReviewStream() {
         return;
     }
 
-    startReviewStream(lastUpload.value.compositionId);
+    startReviewStream(lastUpload.value.compositionId, {
+        routing: lastUpload.value.reviewRouting,
+    });
 }
 
 function polishReviewOutput() {
@@ -763,6 +824,16 @@ async function startReviewStream(compositionId, options = {}) {
             : "Connecting to engraving review stream.";
 
     try {
+        const requestBody = {
+            action,
+            composition_id: compositionId,
+            review_run_id: options.reviewRunId ?? "",
+            source_text: options.sourceText ?? "",
+        };
+        if (action === "analyze" && options.routing) {
+            Object.assign(requestBody, options.routing);
+        }
+
         const response = await fetch(reviewStreamUrl, {
             method: "POST",
             headers: {
@@ -770,12 +841,7 @@ async function startReviewStream(compositionId, options = {}) {
                 Authorization: `Bearer ${data.session.access_token}`,
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-                action,
-                composition_id: compositionId,
-                review_run_id: options.reviewRunId ?? "",
-                source_text: options.sourceText ?? "",
-            }),
+            body: JSON.stringify(requestBody),
             signal: controller.signal,
         });
 
@@ -1190,6 +1256,82 @@ function formatBytes(bytes) {
                         placeholder="Untitled composition"
                         :disabled="isUploading"
                     />
+
+                    <div class="routing-control">
+                        <div class="routing-control__header">
+                            <span class="field-label">Instrumentation</span>
+                            <div class="segmented-control" aria-label="Instrumentation mode">
+                                <button
+                                    class="segmented-control__button"
+                                    :class="{
+                                        'segmented-control__button--active':
+                                            instrumentationMode === 'auto',
+                                    }"
+                                    type="button"
+                                    :disabled="isUploading"
+                                    @click="setInstrumentationMode('auto')"
+                                >
+                                    Auto-detect
+                                </button>
+                                <button
+                                    class="segmented-control__button"
+                                    :class="{
+                                        'segmented-control__button--active':
+                                            instrumentationMode === 'manual',
+                                    }"
+                                    type="button"
+                                    :disabled="isUploading"
+                                    @click="setInstrumentationMode('manual')"
+                                >
+                                    Select
+                                </button>
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="instrumentationMode === 'manual'"
+                            class="instrument-chip-list"
+                            aria-label="Instruments"
+                        >
+                            <button
+                                v-for="instrument in INSTRUMENT_OPTIONS"
+                                :key="instrument.value"
+                                class="instrument-chip"
+                                :class="{
+                                    'instrument-chip--active':
+                                        selectedInstruments.includes(
+                                            instrument.value,
+                                        ),
+                                }"
+                                type="button"
+                                :aria-pressed="
+                                    selectedInstruments.includes(instrument.value)
+                                "
+                                :disabled="isUploading"
+                                @click="toggleInstrument(instrument.value)"
+                            >
+                                {{ instrument.label }}
+                            </button>
+                        </div>
+
+                        <label class="field-label" for="doc-type"
+                            >Document type</label
+                        >
+                        <select
+                            id="doc-type"
+                            v-model="selectedDocType"
+                            class="select-input"
+                            :disabled="isUploading"
+                        >
+                            <option
+                                v-for="option in DOC_TYPE_OPTIONS"
+                                :key="option.value"
+                                :value="option.value"
+                            >
+                                {{ option.label }}
+                            </option>
+                        </select>
+                    </div>
 
                     <label class="file-drop" for="composition-files">
                         <span>Choose PDF score files</span>

@@ -6,8 +6,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { WorkerMessageHandler } from "pdfjs-dist/legacy/build/pdf.worker.mjs";
+import {
+  assembleEngravingPrompt,
+  deriveCategoryFromRuleId,
+  loadDetectionPrompt,
+  loadEngravingManifest,
+} from "./lib/engravingPromptAssembler.js";
 
-const REVIEW_PROMPT_VERSION = "2026-05-30";
+const REVIEW_PROMPT_VERSION = "2026-06-06";
 const DEFAULT_QWEN_BASE_URL = "https://router.huggingface.co/v1";
 const DEFAULT_QWEN_MODEL = "Qwen/Qwen3-VL-8B-Instruct:novita";
 const DEFAULT_HAIKU_MODEL = "claude-haiku-4-5";
@@ -18,10 +24,6 @@ const MAX_PDF_BYTES = 30 * 1024 * 1024;
 
 globalThis.pdfjsWorker ??= { WorkerMessageHandler };
 
-const pagePromptUrl = new URL(
-  "../system_prompts/engraving_page_analysis_system_prompt.md",
-  import.meta.url,
-);
 const polishPromptUrl = new URL(
   "../system_prompts/engraving_polish_system_prompt.md",
   import.meta.url,
@@ -135,7 +137,22 @@ export default async function handler(req, res) {
       throw new Error("No PDF pages could be rendered for engraving review.");
     }
 
-    const pagePrompt = await readFile(pagePromptUrl, "utf8");
+    sendSse(res, "status", { message: "Routing engraving rules for this score." });
+    const routingContext = await resolveEngravingRouting({
+      body,
+      captureSupabase,
+      composition,
+      ownerId: userData.user.id,
+      pages,
+      qwen,
+      qwenConfig,
+      reviewRunId,
+    });
+    await updateReviewRunMetadata(captureSupabase, reviewRunId, {
+      asset_count: pdfAssets.length,
+      asset_types: pdfAssets.map((asset) => asset.asset_type),
+      prompt_routing: routingContext.metadata,
+    });
 
     sendSse(res, "status", { message: "Inspecting engraving details with Qwen." });
     const findings = [];
@@ -143,24 +160,31 @@ export default async function handler(req, res) {
       const response = await streamQwenChat({
         captureSupabase,
         composition,
-        inputSummary: summarizePageBatch(pageBatch),
+        inputSummary: {
+          ...summarizePageBatch(pageBatch),
+          prompt_routing: routingContext.metadata,
+        },
         messages: buildPageAnalysisMessages({
           composition,
           pageBatch,
-          systemPrompt: pagePrompt,
+          routingMetadata: routingContext.metadata,
+          systemPrompt: routingContext.prompt,
         }),
         model: qwenConfig.model,
         ownerId: userData.user.id,
-        promptName: "engraving_page_analysis_system_prompt",
+        promptName: "engraving_scoped_page_analysis_system_prompt",
         provider: "qwen_openai",
         qwen,
         responseKind: "engraving_page_analysis",
         reviewRunId,
-        system: pagePrompt,
+        system: routingContext.prompt,
       });
 
       const parsed = parseJsonObject(response.output);
-      const batchFindings = normalizeFindings(parsed, pageBatch);
+      const batchFindings = normalizeFindings(parsed, pageBatch, {
+        prefixCategories: routingContext.prefixCategories,
+        selectedRuleIds: routingContext.selectedRuleIds,
+      });
       findings.push(...batchFindings);
       await recordEngravingFindings(captureSupabase, {
         compositionId,
@@ -432,6 +456,187 @@ async function renderSubmittedPdfPages(supabase, pdfAssets, options) {
   return pages;
 }
 
+async function resolveEngravingRouting({
+  body,
+  captureSupabase,
+  composition,
+  ownerId,
+  pages,
+  qwen,
+  qwenConfig,
+  reviewRunId,
+}) {
+  const manifest = await loadEngravingManifest();
+  const requestRouting = extractRequestRouting(body);
+  const needsDetection = shouldDetectRouting(requestRouting, manifest);
+  const detectedRouting = needsDetection
+    ? await detectEngravingRouting({
+        captureSupabase,
+        composition,
+        ownerId,
+        pages,
+        qwen,
+        qwenConfig,
+        reviewRunId,
+      })
+    : null;
+  const routing = mergeRoutingInputs({
+    detectedRouting,
+    manifest,
+    requestRouting,
+  });
+  const assembly = await assembleEngravingPrompt({ routing });
+  const metadata = {
+    confidence: assembly.routing.confidence,
+    detection_page_ids: detectedRouting?.source_page_ids ?? [],
+    doc_type: assembly.routing.doc_type,
+    features: assembly.routing.features,
+    instrument_families: assembly.routing.instrument_families,
+    instruments: assembly.routing.instruments,
+    prompt_hash: assembly.promptHash,
+    routing_source: assembly.routing.source,
+    selected_categories: assembly.selectedCategories,
+    selected_chapters: assembly.selectedChapters,
+    selected_rule_count: assembly.selectedRuleIds.length,
+    token_estimate: assembly.tokenEstimate,
+  };
+
+  return {
+    metadata,
+    prefixCategories: manifest.prefix_categories,
+    prompt: assembly.prompt,
+    selectedRuleIds: new Set(assembly.selectedRuleIds),
+  };
+}
+
+async function detectEngravingRouting({
+  captureSupabase,
+  composition,
+  ownerId,
+  pages,
+  qwen,
+  qwenConfig,
+  reviewRunId,
+}) {
+  const detectionPages = pages.slice(0, 3);
+  const detectionPrompt = await loadDetectionPrompt();
+  const response = await streamQwenChat({
+    captureSupabase,
+    composition,
+    inputSummary: {
+      ...summarizePageBatch(detectionPages),
+      routing_detection: true,
+    },
+    maxTokens: 700,
+    messages: buildInstrumentationDetectionMessages({
+      composition,
+      pageBatch: detectionPages,
+      systemPrompt: detectionPrompt,
+    }),
+    model: qwenConfig.model,
+    ownerId,
+    promptName: "engraving_instrumentation_detection_system_prompt",
+    provider: "qwen_openai",
+    qwen,
+    responseKind: "engraving_instrumentation_detection",
+    reviewRunId,
+    system: detectionPrompt,
+  });
+  const parsed = parseJsonObject(response.output);
+
+  return {
+    confidence:
+      typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
+        ? parsed.confidence
+        : 0,
+    doc_type: parsed.doc_type,
+    features: parsed.features,
+    has_staff_system:
+      typeof parsed.has_staff_system === "boolean"
+        ? parsed.has_staff_system
+        : null,
+    instrument_families: parsed.instrument_families,
+    instruments: parsed.instruments,
+    source: "detected",
+    source_page_ids: detectionPages.map((page) => page.sourcePageId),
+  };
+}
+
+function extractRequestRouting(body) {
+  const features =
+    body?.features && typeof body.features === "object" ? body.features : {};
+  return {
+    doc_type: body?.doc_type,
+    features,
+    hasExplicitDocType: ["score", "part"].includes(
+      String(body?.doc_type ?? "").toLowerCase(),
+    ),
+    hasExplicitFeatures: Object.values(features).some(
+      (value) => value === true || value === false,
+    ),
+    hasExplicitInstruments:
+      Array.isArray(body?.instruments) && body.instruments.length > 0,
+    instrument_families: body?.instrument_families,
+    instruments: body?.instruments,
+    source: "request",
+  };
+}
+
+function shouldDetectRouting(requestRouting, manifest) {
+  if (!requestRouting.hasExplicitInstruments || !requestRouting.hasExplicitDocType) {
+    return true;
+  }
+
+  const featureKeys = Object.keys(manifest.feature_defaults ?? {});
+  return featureKeys.some(
+    (key) =>
+      requestRouting.features?.[key] !== true &&
+      requestRouting.features?.[key] !== false,
+  );
+}
+
+function mergeRoutingInputs({ detectedRouting, manifest, requestRouting }) {
+  const detectedFeatures =
+    detectedRouting?.features && typeof detectedRouting.features === "object"
+      ? detectedRouting.features
+      : {};
+  const requestFeatures =
+    requestRouting.features && typeof requestRouting.features === "object"
+      ? requestRouting.features
+      : {};
+  const features = { ...manifest.feature_defaults, ...detectedFeatures };
+
+  for (const [key, value] of Object.entries(requestFeatures)) {
+    if (value === true || value === false) {
+      features[key] = value;
+    }
+  }
+
+  const hasRequestInstruments = requestRouting.hasExplicitInstruments;
+  const hasRequestDocType = requestRouting.hasExplicitDocType;
+  const source = detectedRouting
+    ? hasRequestInstruments || hasRequestDocType || requestRouting.hasExplicitFeatures
+      ? "request_and_detected"
+      : "detected"
+    : "request";
+
+  return {
+    confidence: detectedRouting?.confidence ?? (source === "request" ? 1 : 0),
+    doc_type: hasRequestDocType
+      ? requestRouting.doc_type
+      : detectedRouting?.doc_type ?? "unknown",
+    features,
+    has_staff_system: detectedRouting?.has_staff_system ?? null,
+    instrument_families: hasRequestInstruments
+      ? requestRouting.instrument_families
+      : detectedRouting?.instrument_families,
+    instruments: hasRequestInstruments
+      ? requestRouting.instruments
+      : detectedRouting?.instruments,
+    source,
+  };
+}
+
 async function renderPdfPages({ asset, maxPages, pdfBytes, renderScale }) {
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(pdfBytes),
@@ -504,7 +709,49 @@ class NodeCanvasFactory {
   }
 }
 
-function buildPageAnalysisMessages({ composition, pageBatch, systemPrompt }) {
+function buildInstrumentationDetectionMessages({
+  composition,
+  pageBatch,
+  systemPrompt,
+}) {
+  return [
+    { role: "system", content: systemPrompt },
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: [
+            `Composition: ${composition.title}`,
+            "",
+            "Use these rendered pages to detect instrumentation and notation features for prompt routing.",
+            "Prefer the first page that visibly contains a staff system.",
+            "Return JSON only.",
+            "",
+            "Pages:",
+            ...pageBatch.map(
+              (page) =>
+                `- source_page_id=${page.sourcePageId}; file=${page.assetFilename}; page=${page.pageNumber}; size=${page.width}x${page.height}`,
+            ),
+          ].join("\n"),
+        },
+        ...pageBatch.map((page) => ({
+          type: "image_url",
+          image_url: {
+            url: page.dataUrl,
+          },
+        })),
+      ],
+    },
+  ];
+}
+
+function buildPageAnalysisMessages({
+  composition,
+  pageBatch,
+  routingMetadata,
+  systemPrompt,
+}) {
   return [
     { role: "system", content: systemPrompt },
     {
@@ -517,6 +764,14 @@ function buildPageAnalysisMessages({ composition, pageBatch, systemPrompt }) {
             "",
             "Inspect these score pages for engraving issues only.",
             "Return JSON only using the requested schema.",
+            "",
+            `Prompt routing: ${JSON.stringify({
+              doc_type: routingMetadata.doc_type,
+              features: routingMetadata.features,
+              instrument_families: routingMetadata.instrument_families,
+              instruments: routingMetadata.instruments,
+              selected_chapters: routingMetadata.selected_chapters,
+            })}`,
             "",
             "Pages:",
             ...pageBatch.map(
@@ -540,6 +795,7 @@ async function streamQwenChat({
   captureSupabase,
   composition,
   inputSummary,
+  maxTokens = 1800,
   messages,
   model,
   ownerId,
@@ -559,7 +815,7 @@ async function streamQwenChat({
 
   try {
     const stream = await qwen.chat.completions.create({
-      max_tokens: 1800,
+      max_tokens: maxTokens,
       messages,
       model,
       stream: true,
@@ -736,7 +992,11 @@ function parseJsonObject(text) {
   }
 }
 
-function normalizeFindings(parsed, pageBatch) {
+function normalizeFindings(
+  parsed,
+  pageBatch,
+  { prefixCategories = {}, selectedRuleIds = null } = {},
+) {
   const rawFindings = Array.isArray(parsed)
     ? parsed
     : Array.isArray(parsed.findings)
@@ -746,6 +1006,10 @@ function normalizeFindings(parsed, pageBatch) {
 
   return rawFindings
     .map((finding) => {
+      const ruleId = cleanText(finding.rule_id);
+      if (selectedRuleIds && !selectedRuleIds.has(ruleId)) {
+        return null;
+      }
       const sourcePageId =
         typeof finding.source_page_id === "string"
           ? finding.source_page_id
@@ -758,7 +1022,10 @@ function normalizeFindings(parsed, pageBatch) {
 
       return {
         asset_filename: page.assetFilename,
-        category: cleanText(finding.category) || "engraving",
+        category:
+          deriveCategoryFromRuleId(ruleId, {
+            prefix_categories: prefixCategories,
+          }) || "other",
         confidence:
           typeof finding.confidence === "number" ? finding.confidence : null,
         evidence: cleanText(finding.evidence),
@@ -767,6 +1034,7 @@ function normalizeFindings(parsed, pageBatch) {
           cleanText(finding.location) ||
           `Page ${page.pageNumber}`,
         metadata_json: {
+          rule_id: ruleId,
           source_page_id: page.sourcePageId,
         },
         page_number: page.pageNumber,
@@ -774,7 +1042,7 @@ function normalizeFindings(parsed, pageBatch) {
         severity,
       };
     })
-    .filter((finding) => finding.evidence || finding.recommendation);
+    .filter((finding) => finding && (finding.evidence || finding.recommendation));
 }
 
 function normalizeSeverity(value) {
@@ -894,6 +1162,24 @@ async function completeReviewRun(supabase, reviewRunId) {
     .eq("id", reviewRunId);
 
   if (error) console.warn("[engraving] Unable to complete review run.", error);
+}
+
+async function updateReviewRunMetadata(supabase, reviewRunId, metadata) {
+  if (!supabase || !reviewRunId) return;
+
+  const { error } = await supabase
+    .from("review_runs")
+    .update({
+      metadata_json: {
+        review_type: "engraving",
+        ...metadata,
+      },
+    })
+    .eq("id", reviewRunId);
+
+  if (error) {
+    console.warn("[engraving] Unable to update review run metadata.", error);
+  }
 }
 
 async function failReviewRun(supabase, reviewRunId, error) {

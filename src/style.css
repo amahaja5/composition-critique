@@ -32,7 +32,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -41,7 +42,8 @@ button {
 }
 
 button:disabled,
-input:disabled {
+input:disabled,
+select:disabled {
   cursor: not-allowed;
   opacity: 0.62;
 }
@@ -391,7 +393,8 @@ input:disabled {
   gap: 14px;
 }
 
-.text-input {
+.text-input,
+.select-input {
   width: 100%;
   min-height: 46px;
   border: 1px solid var(--line);
@@ -402,11 +405,86 @@ input:disabled {
 }
 
 .text-input:focus,
+.select-input:focus,
 .file-drop:focus-within,
 .button:focus-visible,
-.icon-button:focus-visible {
+.icon-button:focus-visible,
+.instrument-chip:focus-visible,
+.segmented-control__button:focus-visible {
   outline: 3px solid rgba(36, 107, 95, 0.22);
   outline-offset: 2px;
+}
+
+.select-input {
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%) calc(100% - 18px) 50% / 6px 6px no-repeat,
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%) calc(100% - 13px) 50% / 6px 6px no-repeat,
+    var(--surface);
+}
+
+.routing-control {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfb;
+}
+
+.routing-control__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.segmented-control,
+.instrument-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.segmented-control {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px;
+  background: var(--surface);
+}
+
+.segmented-control__button,
+.instrument-chip {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.segmented-control__button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.82rem;
+}
+
+.segmented-control__button--active,
+.instrument-chip--active {
+  border-color: #b7d6c8;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.instrument-chip {
+  min-height: 32px;
+  padding: 0 10px;
+  background: var(--surface);
+  border-color: var(--line);
+  font-size: 0.84rem;
 }
 
 .file-drop {
