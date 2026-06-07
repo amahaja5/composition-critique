@@ -1260,7 +1260,10 @@ function formatBytes(bytes) {
                     <div class="routing-control">
                         <div class="routing-control__header">
                             <span class="field-label">Instrumentation</span>
-                            <div class="segmented-control" aria-label="Instrumentation mode">
+                            <div
+                                class="segmented-control"
+                                aria-label="Instrumentation mode"
+                            >
                                 <button
                                     class="segmented-control__button"
                                     :class="{

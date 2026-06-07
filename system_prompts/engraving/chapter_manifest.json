@@ -1,0 +1,443 @@
+{
+  "version": "2026-06-06",
+  "base": "base.md",
+  "reminders": "reminders.md",
+  "examples": {
+    "intro": "examples/intro.md",
+    "files": [
+      "examples/example_a.md",
+      "examples/example_b.md",
+      "examples/example_c.md",
+      "examples/example_d.md",
+      "examples/example_e.md"
+    ]
+  },
+  "feature_defaults": {
+    "tuplets": null,
+    "repeats": null,
+    "ornaments_glissandi": null,
+    "lyrics": null,
+    "nonstandard_notation": null,
+    "electroacoustic_or_graphic": null
+  },
+  "instrument_family_aliases": {
+    "violin": "bowed_strings",
+    "viola": "bowed_strings",
+    "cello": "bowed_strings",
+    "bass": "bowed_strings",
+    "double_bass": "bowed_strings",
+    "contrabass": "bowed_strings",
+    "strings": "bowed_strings",
+    "string_quartet": "bowed_strings",
+    "guitar": "guitar",
+    "classical_guitar": "guitar",
+    "electric_guitar": "guitar",
+    "piano": "keyboard",
+    "keyboard": "keyboard",
+    "organ": "keyboard",
+    "celesta": "keyboard",
+    "harpsichord": "keyboard",
+    "harp": "harp",
+    "flute": "woodwind_brass",
+    "oboe": "woodwind_brass",
+    "clarinet": "woodwind_brass",
+    "bassoon": "woodwind_brass",
+    "saxophone": "woodwind_brass",
+    "horn": "woodwind_brass",
+    "trumpet": "woodwind_brass",
+    "trombone": "woodwind_brass",
+    "tuba": "woodwind_brass",
+    "wind": "woodwind_brass",
+    "brass": "woodwind_brass",
+    "woodwind": "woodwind_brass",
+    "percussion": "percussion",
+    "drum": "percussion",
+    "drums": "percussion",
+    "timpani": "percussion",
+    "marimba": "percussion",
+    "vibraphone": "percussion",
+    "voice": "voice",
+    "vocal": "voice",
+    "singer": "voice",
+    "soprano": "voice",
+    "alto": "voice",
+    "tenor": "voice",
+    "baritone": "voice",
+    "bass_voice": "voice",
+    "choir": "voice",
+    "chorus": "voice",
+    "electronics": "electronics",
+    "electroacoustic": "electronics",
+    "tape": "electronics",
+    "fixed_media": "electronics"
+  },
+  "chapters": [
+    {
+      "tag": "chapter_01_ground_rules",
+      "title": "Chapter 1: Ground Rules",
+      "file": "chapters/chapter_01_ground_rules.md",
+      "rule_prefixes": [
+        "BAR",
+        "BEAM",
+        "CHAP",
+        "CLEF",
+        "LEDG",
+        "NOTE",
+        "OCT",
+        "READ",
+        "REST",
+        "SPAC",
+        "STAV",
+        "STEM",
+        "TAIL"
+      ],
+      "group": "core",
+      "categories": [
+        "readability",
+        "layout",
+        "clefs",
+        "noteheads",
+        "stems",
+        "tails",
+        "beaming",
+        "ledger_lines",
+        "octave_signs",
+        "rests",
+        "barlines",
+        "spacing"
+      ]
+    },
+    {
+      "tag": "chapter_02_chords_dotted_notes_ties",
+      "title": "Chapter 2: Chords - Dotted notes - Ties",
+      "file": "chapters/chapter_02_chords_dotted_notes_ties.md",
+      "rule_prefixes": [
+        "CHRD",
+        "DOT",
+        "TIE"
+      ],
+      "group": "core",
+      "categories": [
+        "chords",
+        "dots",
+        "ties"
+      ]
+    },
+    {
+      "tag": "chapter_03_accidentals_and_key_signatures",
+      "title": "Chapter 3: Accidentals and Key Signatures",
+      "file": "chapters/chapter_03_accidentals_and_key_signatures.md",
+      "rule_prefixes": [
+        "ACC",
+        "KEY"
+      ],
+      "group": "core",
+      "categories": [
+        "accidentals",
+        "key_signatures"
+      ]
+    },
+    {
+      "tag": "chapter_04_dynamics_and_articulation",
+      "title": "Chapter 4: Dynamics and Articulation",
+      "file": "chapters/chapter_04_dynamics_and_articulation.md",
+      "rule_prefixes": [
+        "ART",
+        "DYN"
+      ],
+      "group": "core",
+      "categories": [
+        "dynamics",
+        "articulation"
+      ]
+    },
+    {
+      "tag": "chapter_05_grace_notes_arpeggiated_chords_trills_glissandos_and_vibrato",
+      "title": "Chapter 5: Grace Notes, Arpeggiated Chords, Trills, Glissandos and Vibrato",
+      "file": "chapters/chapter_05_grace_notes_arpeggiated_chords_trills_glissandos_and_vibrato.md",
+      "rule_prefixes": [
+        "ARPG",
+        "GLIS",
+        "GRAC",
+        "ORN"
+      ],
+      "group": "feature",
+      "feature": "ornaments_glissandi",
+      "categories": [
+        "ornaments",
+        "glissandi",
+        "grace_notes",
+        "arpeggios"
+      ]
+    },
+    {
+      "tag": "chapter_06_metre",
+      "title": "Chapter 6: Metre",
+      "file": "chapters/chapter_06_metre.md",
+      "rule_prefixes": [
+        "METR",
+        "TIME"
+      ],
+      "group": "core",
+      "categories": [
+        "metre",
+        "time_signatures"
+      ]
+    },
+    {
+      "tag": "chapter_07_tuplets",
+      "title": "Chapter 7: Tuplets",
+      "file": "chapters/chapter_07_tuplets.md",
+      "rule_prefixes": [
+        "TUPL"
+      ],
+      "group": "feature",
+      "feature": "tuplets",
+      "categories": [
+        "tuplets"
+      ]
+    },
+    {
+      "tag": "chapter_08_repeat_signs",
+      "title": "Chapter 8: Repeat Signs",
+      "file": "chapters/chapter_08_repeat_signs.md",
+      "rule_prefixes": [
+        "REPT"
+      ],
+      "group": "feature",
+      "feature": "repeats",
+      "categories": [
+        "repeat_signs"
+      ]
+    },
+    {
+      "tag": "chapter_09_woodwind_and_brass",
+      "title": "Chapter 9: Woodwind and Brass",
+      "file": "chapters/chapter_09_woodwind_and_brass.md",
+      "rule_prefixes": [
+        "INST",
+        "WBRS"
+      ],
+      "group": "instrument",
+      "families": [
+        "woodwind_brass"
+      ],
+      "categories": [
+        "instrumentation"
+      ]
+    },
+    {
+      "tag": "chapter_10_percussion",
+      "title": "Chapter 10: Percussion",
+      "file": "chapters/chapter_10_percussion.md",
+      "rule_prefixes": [
+        "PERC"
+      ],
+      "group": "instrument",
+      "families": [
+        "percussion"
+      ],
+      "categories": [
+        "instrumentation"
+      ]
+    },
+    {
+      "tag": "chapter_11_keyboard",
+      "title": "Chapter 11: Keyboard",
+      "file": "chapters/chapter_11_keyboard.md",
+      "rule_prefixes": [
+        "KEYB"
+      ],
+      "group": "instrument",
+      "families": [
+        "keyboard"
+      ],
+      "categories": [
+        "instrumentation"
+      ]
+    },
+    {
+      "tag": "chapter_12_harp",
+      "title": "Chapter 12: Harp",
+      "file": "chapters/chapter_12_harp.md",
+      "rule_prefixes": [
+        "HARP"
+      ],
+      "group": "instrument",
+      "families": [
+        "harp"
+      ],
+      "categories": [
+        "instrumentation"
+      ]
+    },
+    {
+      "tag": "chapter_13_classical_guitar",
+      "title": "Chapter 13: Classical Guitar",
+      "file": "chapters/chapter_13_classical_guitar.md",
+      "rule_prefixes": [
+        "GTR"
+      ],
+      "group": "instrument",
+      "families": [
+        "guitar"
+      ],
+      "categories": [
+        "instrumentation"
+      ]
+    },
+    {
+      "tag": "chapter_14_strings",
+      "title": "Chapter 14: Strings",
+      "file": "chapters/chapter_14_strings.md",
+      "rule_prefixes": [
+        "STRG"
+      ],
+      "group": "instrument",
+      "families": [
+        "bowed_strings"
+      ],
+      "categories": [
+        "instrumentation"
+      ]
+    },
+    {
+      "tag": "chapter_15_vocal_music",
+      "title": "Chapter 15: Vocal Music",
+      "file": "chapters/chapter_15_vocal_music.md",
+      "rule_prefixes": [
+        "LYRC",
+        "VOIC"
+      ],
+      "group": "instrument_or_feature",
+      "families": [
+        "voice"
+      ],
+      "feature": "lyrics",
+      "categories": [
+        "lyrics",
+        "instrumentation"
+      ]
+    },
+    {
+      "tag": "chapter_16_preparing_materials",
+      "title": "Chapter 16: Preparing Materials",
+      "file": "chapters/chapter_16_preparing_materials.md",
+      "rule_prefixes": [
+        "PREP",
+        "TEXT"
+      ],
+      "group": "core",
+      "categories": [
+        "text",
+        "layout"
+      ]
+    },
+    {
+      "tag": "chapter_17_score_layout",
+      "title": "Chapter 17: Score Layout",
+      "file": "chapters/chapter_17_score_layout.md",
+      "rule_prefixes": [
+        "LAYT"
+      ],
+      "group": "core",
+      "categories": [
+        "layout",
+        "text",
+        "instrumentation"
+      ]
+    },
+    {
+      "tag": "chapter_18_part_preparation",
+      "title": "Chapter 18: Part Preparation",
+      "file": "chapters/chapter_18_part_preparation.md",
+      "rule_prefixes": [
+        "PART"
+      ],
+      "group": "doc_type",
+      "docTypes": [
+        "part"
+      ],
+      "categories": [
+        "parts",
+        "layout"
+      ]
+    },
+    {
+      "tag": "chapter_19_electroacoustic_music",
+      "title": "Chapter 19: Electroacoustic Music",
+      "file": "chapters/chapter_19_electroacoustic_music.md",
+      "rule_prefixes": [
+        "ELEC"
+      ],
+      "group": "instrument_or_feature",
+      "families": [
+        "electronics"
+      ],
+      "feature": "electroacoustic_or_graphic",
+      "categories": [
+        "other",
+        "readability"
+      ]
+    },
+    {
+      "tag": "chapter_20_freedom_and_choice",
+      "title": "Chapter 20: Freedom and Choice",
+      "file": "chapters/chapter_20_freedom_and_choice.md",
+      "rule_prefixes": [
+        "FREE"
+      ],
+      "group": "feature_safety",
+      "feature": "nonstandard_notation",
+      "categories": [
+        "other",
+        "readability"
+      ]
+    }
+  ],
+  "prefix_categories": {
+    "ACC": "accidentals",
+    "ARPG": "arpeggios",
+    "ART": "articulation",
+    "BAR": "barlines",
+    "BEAM": "beaming",
+    "CHAP": "other",
+    "CHRD": "chords",
+    "CLEF": "clefs",
+    "DOT": "dots",
+    "DYN": "dynamics",
+    "ELEC": "other",
+    "FREE": "other",
+    "GLIS": "glissandi",
+    "GRAC": "grace_notes",
+    "GTR": "instrumentation",
+    "HARP": "instrumentation",
+    "INST": "instrumentation",
+    "KEY": "key_signatures",
+    "KEYB": "instrumentation",
+    "LAYT": "layout",
+    "LEDG": "ledger_lines",
+    "LYRC": "lyrics",
+    "METR": "metre",
+    "NOTE": "noteheads",
+    "OCT": "octave_signs",
+    "ORN": "ornaments",
+    "PART": "parts",
+    "PERC": "instrumentation",
+    "PREP": "text",
+    "READ": "readability",
+    "REPT": "repeat_signs",
+    "REST": "rests",
+    "SPAC": "spacing",
+    "STAV": "layout",
+    "STEM": "stems",
+    "STRG": "instrumentation",
+    "TAIL": "tails",
+    "TEXT": "text",
+    "TIE": "ties",
+    "TIME": "time_signatures",
+    "TUPL": "tuplets",
+    "VOIC": "instrumentation",
+    "WBRS": "instrumentation"
+  }
+}
