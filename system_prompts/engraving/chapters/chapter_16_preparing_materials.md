@@ -20,6 +20,7 @@ Chapter scope: Score/part preparation, legends, titles, page turns, transpositio
 - TEXT-08: Abbreviations must be clear and conventional enough for the instrument or context.
 - TEXT-09: Rehearsal marks must be easy to locate and not collide with other system-level text.
 - TEXT-10: Page headers, titles, subtitles, composer names, and movement headings must not crowd the first system.
+- TEXT-11: Tempo markings and metronome marks above a system must clear the staff; staff-lines must not pass through tempo text, numerals, or metronome symbols.
 </rules_text>
 
 </chapter_16_preparing_materials>

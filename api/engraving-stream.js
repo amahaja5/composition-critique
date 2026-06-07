@@ -13,7 +13,7 @@ import {
   loadEngravingManifest,
 } from "./lib/engravingPromptAssembler.js";
 
-const REVIEW_PROMPT_VERSION = "2026-06-06";
+const REVIEW_PROMPT_VERSION = "2026-06-07";
 const DEFAULT_QWEN_BASE_URL = "https://router.huggingface.co/v1";
 const DEFAULT_QWEN_MODEL = "Qwen/Qwen3-VL-8B-Instruct:novita";
 const DEFAULT_HAIKU_MODEL = "claude-haiku-4-5";

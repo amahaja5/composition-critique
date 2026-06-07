@@ -31,6 +31,8 @@ assertExcludes(duo.selectedChapters, "chapter_15_vocal_music");
 
 assertPublicSafe(duo.prompt);
 assertRuleIdsLoaded(duo.prompt, duo.selectedRuleIds);
+assert.equal(duo.prompt.includes("TEXT-11"), true);
+assert.equal(duo.prompt.includes("tempo marking colliding with the staff"), true);
 assert.equal(duo.tokenEstimate.drop > 1000, true);
 assert.equal(duo.tokenEstimate.ratio < 0.95, true);
 

@@ -681,6 +681,7 @@ Chapter scope: Score/part preparation, legends, titles, page turns, transpositio
 - TEXT-08: Abbreviations must be clear and conventional enough for the instrument or context.
 - TEXT-09: Rehearsal marks must be easy to locate and not collide with other system-level text.
 - TEXT-10: Page headers, titles, subtitles, composer names, and movement headings must not crowd the first system.
+- TEXT-11: Tempo markings and metronome marks above a system must clear the staff; staff-lines must not pass through tempo text, numerals, or metronome symbols.
 </rules_text>
 
 </chapter_16_preparing_materials>
@@ -874,6 +875,29 @@ Expected output:
       "evidence": "The lyric syllable touches a down-stem and is partly obscured.",
       "recommendation": "Lower or respell the lyric spacing so text clears the stem.",
       "confidence": 0.86
+    }
+  ]
+}
+```
+
+### Example F - tempo marking colliding with the staff
+
+User message: `source_page_id: pg_tempo1`
+
+Expected output:
+```json
+{
+  "findings": [
+    {
+      "source_page_id": "pg_tempo1",
+      "page_number": null,
+      "location_label": "first system, above staff 1",
+      "rule_id": "TEXT-11",
+      "category": "text",
+      "severity": "high",
+      "evidence": "The tempo marking overlaps the top staff-lines, making the text and metronome marking hard to read.",
+      "recommendation": "Raise the tempo marking above the staff with clear vertical separation.",
+      "confidence": 0.91
     }
   ]
 }
