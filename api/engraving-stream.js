@@ -272,7 +272,7 @@ async function handlePolishRequest({
     sourceText,
   });
 
-  await streamHaikuPolish({
+  await createHaikuPolish({
     captureSupabase,
     compositionId,
     inputSummary: {
@@ -927,7 +927,7 @@ async function streamQwenChat({
   return { output, responseId };
 }
 
-async function streamHaikuPolish({
+async function createHaikuPolish({
   captureSupabase,
   compositionId,
   inputSummary,
@@ -952,36 +952,19 @@ async function streamHaikuPolish({
   let messageJson = {};
   let usageJson = {};
   const responseId = randomUUID();
-  const streamEvents = [];
 
   try {
-    const stream = await anthropic.messages.create({
+    const message = await anthropic.messages.create({
       max_tokens: 1400,
       messages: [{ role: "user", content: userText }],
       model,
-      stream: true,
       system,
       temperature: 0.2,
     });
-
-    for await (const event of stream) {
-      streamEvents.push(toJson(event));
-      if (event.type === "message_start") {
-        messageJson = toJson(event.message);
-        usageJson = mergeUsage(usageJson, event.message?.usage);
-      }
-      if (event.type === "message_delta") {
-        messageJson = { ...messageJson, delta: toJson(event.delta) };
-        usageJson = mergeUsage(usageJson, event.usage);
-      }
-      if (
-        event.type === "content_block_delta" &&
-        event.delta?.type === "text_delta"
-      ) {
-        output += event.delta.text;
-        sendSse(res, "delta", { text: event.delta.text });
-      }
-    }
+    messageJson = toJson(message);
+    usageJson = mergeUsage(usageJson, message.usage);
+    output = stripMarkdownFence(extractAnthropicText(message.content));
+    sendSse(res, "delta", { text: output });
   } catch (error) {
     errorMessage = formatProviderError("Haiku engraving polish", error);
     throw new Error(errorMessage, { cause: error });
@@ -1000,7 +983,7 @@ async function streamHaikuPolish({
       responseKind,
       reviewRunId,
       status: errorMessage ? "failed" : "completed",
-      streamEvents,
+      streamEvents: [],
       system,
       usageJson,
     });
@@ -1021,6 +1004,22 @@ function extractChatDeltaText(content) {
       .join("");
   }
   return "";
+}
+
+function extractAnthropicText(content) {
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      return part?.type === "text" ? part.text ?? "" : "";
+    })
+    .join("");
+}
+
+function stripMarkdownFence(text) {
+  const trimmed = String(text ?? "").trim();
+  const match = trimmed.match(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i);
+  return match ? match[1].trim() : trimmed;
 }
 
 function formatProviderError(source, error) {

@@ -35,7 +35,7 @@ These fields drive your decisions. They are working data, not text to display ve
 
 ## OUTPUT FORMAT
 
-Polished Markdown, exactly these three sections:
+Polished Markdown, exactly these three sections. Output the Markdown directly; do not wrap it in triple backticks, a code fence, or a `markdown` block.
 
 ### `## Summary`
 Two to four sentences naming the most important recurring engraving/readability pattern across the findings. Lead with whatever has the highest severity and recurs most. Match the certainty and scope of the underlying findings: hedge if they are hedged, and name only the pages/systems actually covered — do not generalize to the whole score.
@@ -51,6 +51,7 @@ An ordered list (max 5 items) of the highest-impact corrections, ordered as in s
 - Use only the supplied findings. Add nothing, re-review nothing, infer no pitches or intent.
 - Do not expose internal codes, severity labels, confidence scores, or rule references — translate them into impact and certainty language.
 - Do not mention models, prompts, APIs, pipelines, storage, file paths, or any internal process detail.
+- Do not use code fences or preformatted blocks.
 - Do not quote or cite any engraving manual or proprietary source.
 - Preserve uncertainty where the findings are uncertain; do not upgrade a hedged finding into a definite one, and do not widen its scope.
 - Confidence that is missing or `null` is treated as low, not high — hedge it.
