@@ -200,21 +200,27 @@ export default async function handler(req, res) {
 }
 
 function getQwenConfig() {
-  const apiKey =
-    process.env.QWEN_OPENAI_API_KEY ??
-    process.env.HF_TOKEN ??
-    process.env.OPENAI_API_KEY;
   const baseURL =
     process.env.QWEN_OPENAI_BASE_URL ??
     process.env.OPENAI_BASE_URL ??
     DEFAULT_QWEN_BASE_URL;
+  const isHuggingFaceRouter = baseURL.includes("router.huggingface.co");
+  const apiKey = isHuggingFaceRouter
+    ? process.env.QWEN_OPENAI_API_KEY ?? process.env.HF_TOKEN
+    : process.env.QWEN_OPENAI_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      process.env.HF_TOKEN;
   const model =
     process.env.QWEN_OPENAI_MODEL ??
     process.env.QWEN_ENGRAVING_MODEL ??
     DEFAULT_QWEN_MODEL;
 
   if (!apiKey) {
-    throw new Error("Set QWEN_OPENAI_API_KEY or HF_TOKEN for Qwen engraving review.");
+    throw new Error(
+      isHuggingFaceRouter
+        ? "Set HF_TOKEN or QWEN_OPENAI_API_KEY for Hugging Face Router."
+        : "Set QWEN_OPENAI_API_KEY for Qwen engraving review.",
+    );
   }
 
   return { apiKey, baseURL, model };
