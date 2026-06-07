@@ -25,7 +25,7 @@ QWEN_OPENAI_MODEL=Qwen/Qwen3-VL-8B-Instruct:novita
 QWEN_MAX_PAGES=12
 QWEN_PAGES_PER_CALL=3
 QWEN_RENDER_SCALE=2
-ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_API_KEY=your-anthropic-api-key-for-optional-polish
 ANTHROPIC_POLISH_MODEL=claude-haiku-4-5
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
@@ -106,8 +106,9 @@ Engraving review capture for DPO/evaluation data is in
 `supabase/migrations/20260530120000_create_review_capture_schema.sql`. It
 creates `review_runs`, `review_responses`, and `engraving_findings`, grants
 writes to `service_role`, and lets authenticated users read only their own review
-rows. The live review endpoint renders the submitted PDF pages, asks Qwen for
-engraving findings, then uses Haiku only to polish those findings into Markdown.
+rows. The live review endpoint renders the submitted PDF pages and asks Qwen for
+engraving findings. The user can optionally click **Polish output** to ask Haiku
+to polish those findings into Markdown.
 
 Create one private bucket:
 

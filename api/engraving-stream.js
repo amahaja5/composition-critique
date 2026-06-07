@@ -52,7 +52,6 @@ export default async function handler(req, res) {
   let reviewRunId = null;
 
   try {
-    const qwenConfig = getQwenConfig();
     const supabaseUrl = process.env.VITE_SUPABASE_URL;
     const supabaseKey =
       process.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
@@ -75,6 +74,7 @@ export default async function handler(req, res) {
       sendSse(res, "error", { message: "Missing composition_id." });
       return;
     }
+    const action = body?.action ?? "analyze";
 
     const supabase = createClient(supabaseUrl, supabaseKey, {
       global: { headers: { Authorization: `Bearer ${token}` } },
@@ -88,6 +88,24 @@ export default async function handler(req, res) {
       return;
     }
 
+    if (action === "polish") {
+      await handlePolishRequest({
+        body,
+        captureSupabase,
+        compositionId,
+        ownerId: userData.user.id,
+        res,
+        supabase,
+      });
+      return;
+    }
+
+    if (action !== "analyze") {
+      sendSse(res, "error", { message: "Unsupported engraving review action." });
+      return;
+    }
+
+    const qwenConfig = getQwenConfig();
     const qwen = new OpenAI({
       apiKey: qwenConfig.apiKey,
       baseURL: qwenConfig.baseURL,
@@ -106,7 +124,7 @@ export default async function handler(req, res) {
       compositionId,
       model: qwenConfig.model,
       ownerId: userData.user.id,
-      provider: "qwen_openai+anthropic_haiku",
+      provider: "qwen_openai",
       reviewRunId,
     });
 
@@ -117,10 +135,7 @@ export default async function handler(req, res) {
       throw new Error("No PDF pages could be rendered for engraving review.");
     }
 
-    const [pagePrompt, polishPrompt] = await Promise.all([
-      readFile(pagePromptUrl, "utf8"),
-      readFile(polishPromptUrl, "utf8"),
-    ]);
+    const pagePrompt = await readFile(pagePromptUrl, "utf8");
 
     sendSse(res, "status", { message: "Inspecting engraving details with Qwen." });
     const findings = [];
@@ -156,36 +171,23 @@ export default async function handler(req, res) {
       });
     }
 
-    sendSse(res, "status", { message: "Polishing engraving report with Haiku." });
-    const reportInput = buildPolishInput({
-      composition,
-      findings,
-      pages,
+    sendSse(res, "status", {
+      message: "Engraving findings ready. Use Polish output for a cleaner report.",
     });
-
-    await streamHaikuPolish({
-      captureSupabase,
-      compositionId,
-      inputSummary: {
-        finding_count: findings.length,
-        page_count: pages.length,
-        source: "qwen_engraving_page_analysis",
-      },
-      model: process.env.ANTHROPIC_POLISH_MODEL ??
-        process.env.ANTHROPIC_MODEL ??
-        DEFAULT_HAIKU_MODEL,
-      ownerId: userData.user.id,
-      promptName: "engraving_polish_system_prompt",
-      provider: "anthropic",
-      res,
-      responseKind: "engraving_summary",
-      reviewRunId,
-      system: polishPrompt,
-      userText: reportInput,
+    sendSse(res, "delta", {
+      text: buildFindingsMarkdown({
+        composition,
+        findings,
+        pages,
+      }),
     });
 
     await completeReviewRun(captureSupabase, reviewRunId);
-    sendSse(res, "done", { review_id: reviewRunId });
+    sendSse(res, "done", {
+      can_polish: true,
+      finding_count: findings.length,
+      review_id: reviewRunId,
+    });
   } catch (error) {
     await failReviewRun(captureSupabase, reviewRunId, error);
     sendSse(res, "error", {
@@ -197,6 +199,88 @@ export default async function handler(req, res) {
   } finally {
     res.end();
   }
+}
+
+async function handlePolishRequest({
+  body,
+  captureSupabase,
+  compositionId,
+  ownerId,
+  res,
+  supabase,
+}) {
+  const sourceText = String(body?.source_text ?? "").trim();
+  if (!sourceText) {
+    sendSse(res, "error", { message: "No engraving findings were provided to polish." });
+    return;
+  }
+
+  const composition = await loadComposition(supabase, compositionId);
+  const polishPrompt = await readFile(polishPromptUrl, "utf8");
+  const reviewRunId =
+    typeof body?.review_run_id === "string" && body.review_run_id
+      ? body.review_run_id
+      : randomUUID();
+  const shouldCreateRun = reviewRunId !== body?.review_run_id;
+
+  if (shouldCreateRun) {
+    await createReviewRun(captureSupabase, {
+      assets: [],
+      compositionId,
+      model:
+        process.env.ANTHROPIC_POLISH_MODEL ??
+        process.env.ANTHROPIC_MODEL ??
+        DEFAULT_HAIKU_MODEL,
+      ownerId,
+      provider: "anthropic",
+      reviewRunId,
+    });
+  }
+
+  sendSse(res, "status", { message: "Polishing engraving report with Haiku." });
+  const reportInput = buildPolishInput({
+    composition,
+    sourceText,
+  });
+
+  await streamHaikuPolish({
+    captureSupabase,
+    compositionId,
+    inputSummary: {
+      source: "visible_qwen_engraving_findings",
+      source_text_chars: sourceText.length,
+      source_text_sha256: hashText(sourceText),
+    },
+    model:
+      process.env.ANTHROPIC_POLISH_MODEL ??
+      process.env.ANTHROPIC_MODEL ??
+      DEFAULT_HAIKU_MODEL,
+    ownerId,
+    promptName: "engraving_polish_system_prompt",
+    provider: "anthropic",
+    res,
+    responseKind: "engraving_summary",
+    reviewRunId,
+    system: polishPrompt,
+    userText: reportInput,
+  });
+
+  await completeReviewRun(captureSupabase, reviewRunId);
+  sendSse(res, "done", { polished: true, review_id: reviewRunId });
+}
+
+async function loadComposition(supabase, compositionId) {
+  const { data: composition, error } = await supabase
+    .from("compositions")
+    .select("id,title")
+    .eq("id", compositionId)
+    .single();
+
+  if (error || !composition) {
+    throw new Error("Submitted composition was not found for this user.");
+  }
+
+  return composition;
 }
 
 function getQwenConfig() {
@@ -702,14 +786,63 @@ function cleanText(value) {
   return String(value ?? "").trim();
 }
 
-function buildPolishInput({ composition, findings, pages }) {
+function buildPolishInput({ composition, sourceText }) {
   return [
+    `Composition: ${composition.title}`,
+    "",
+    "Visible engraving findings to polish:",
+    sourceText,
+  ].join("\n");
+}
+
+function buildFindingsMarkdown({ composition, findings, pages }) {
+  const lines = [
+    "## Engraving Findings",
+    "",
     `Composition: ${composition.title}`,
     `Rendered pages inspected: ${pages.length}`,
     "",
-    "Qwen engraving findings JSON:",
-    JSON.stringify({ findings }, null, 2),
-  ].join("\n");
+  ];
+
+  if (!findings.length) {
+    lines.push(
+      "No clear engraving issues were detected in the rendered pages.",
+      "",
+      "A manual print-readability pass is still recommended for page turns, part extraction, and final layout.",
+    );
+    return `${lines.join("\n")}\n`;
+  }
+
+  const sortedFindings = [...findings].sort((a, b) => {
+    const pageDelta = (a.page_number ?? 0) - (b.page_number ?? 0);
+    if (pageDelta) return pageDelta;
+    return severityRank(b.severity) - severityRank(a.severity);
+  });
+
+  for (const finding of sortedFindings) {
+    const heading = [
+      `Page ${finding.page_number ?? "unknown"}`,
+      finding.location_label,
+      finding.category,
+      finding.severity,
+    ]
+      .filter(Boolean)
+      .join(" - ");
+    lines.push(`### ${heading}`, "");
+    if (finding.evidence) {
+      lines.push(`- Observation: ${finding.evidence}`);
+    }
+    if (finding.recommendation) {
+      lines.push(`- Recommendation: ${finding.recommendation}`);
+    }
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}Use **Polish output** for a cleaner composer-facing version.\n`;
+}
+
+function severityRank(severity) {
+  return { high: 3, medium: 2, low: 1 }[severity] ?? 0;
 }
 
 function summarizePageBatch(pageBatch) {

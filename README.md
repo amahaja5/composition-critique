@@ -8,7 +8,7 @@ The app currently wires:
 - Supabase Storage uploads to the `compositions` bucket
 - Postgres inserts for `compositions`, `composition_assets`, and `upload_events`
 - ownership via the logged-in Supabase user id on every submission row and path
-- live engraving review streaming through a server-side Qwen + Haiku endpoint
+- live engraving review streaming through a server-side Qwen endpoint
 
 ## Environment
 
@@ -24,7 +24,7 @@ QWEN_OPENAI_MODEL=Qwen/Qwen3-VL-8B-Instruct:novita
 QWEN_MAX_PAGES=12
 QWEN_PAGES_PER_CALL=3
 QWEN_RENDER_SCALE=2
-ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_API_KEY=your-anthropic-api-key-for-optional-polish
 ANTHROPIC_POLISH_MODEL=claude-haiku-4-5
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
@@ -37,11 +37,12 @@ Vercel API function.
 
 The app posts uploaded composition ids to `/api/engraving-stream`. That Vercel
 API function validates the Supabase user session, loads the submitted PDF,
-renders pages to images, asks Qwen for engraving findings, then streams a Haiku
-polished Markdown report back to the browser.
+renders pages to images, asks Qwen for engraving findings, then streams a
+findings report back to the browser. The user can then click **Polish output** to
+run the optional Haiku polish pass.
 
-When `SUPABASE_SERVICE_ROLE_KEY` is configured, Qwen findings, Haiku polish
-responses, and normalized engraving findings are stored under a shared
+When `SUPABASE_SERVICE_ROLE_KEY` is configured, Qwen findings, optional Haiku
+polish responses, and normalized engraving findings are stored under a shared
 `review_runs` row for DPO/evaluation preparation. Prompt files are loaded from
 `system_prompts/`, which is intentionally ignored because those prompts live in
 a separate repository.

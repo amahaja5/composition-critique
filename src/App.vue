@@ -30,6 +30,8 @@ const reviewMessage = ref("Engraving review will appear here after submission.")
 const reviewText = ref("");
 const reviewError = ref("");
 const reviewId = ref("");
+const reviewPolished = ref(false);
+const activeReviewAction = ref("analyze");
 const routePath = ref(normalizePath(window.location.pathname));
 
 let authSubscription = null;
@@ -140,9 +142,13 @@ const pdfPreviewAssets = computed(
         ) ?? [],
 );
 const reviewPanelTitle = computed(() => {
+    if (reviewPolished.value && reviewStatus.value === "complete") {
+        return "Polished engraving review";
+    }
     if (reviewStatus.value === "complete") return "Engraving review complete";
     if (reviewStatus.value === "error") return "Engraving review interrupted";
     if (reviewStatus.value === "not_configured") return "Engraving review not configured";
+    if (activeReviewAction.value === "polish") return "Polishing engraving review";
     if (["connecting", "waiting", "streaming"].includes(reviewStatus.value)) {
         return "Live engraving review";
     }
@@ -179,6 +185,13 @@ const reviewPlaceholder = computed(() => {
 });
 const canReconnectReview = computed(
     () => reviewStatus.value === "error" && Boolean(lastUpload.value?.compositionId),
+);
+const canPolishReview = computed(
+    () =>
+        reviewStatus.value === "complete" &&
+        !reviewPolished.value &&
+        Boolean(reviewText.value.trim()) &&
+        Boolean(lastUpload.value?.compositionId),
 );
 const authCallbackUrl = computed(() => `${window.location.origin}/auth/callback`);
 const isAuthCallbackRoute = computed(() => routePath.value === "/auth/callback");
@@ -685,6 +698,8 @@ function resetReviewPanel(message = "Engraving review will appear here after sub
     reviewText.value = "";
     reviewError.value = "";
     reviewId.value = "";
+    reviewPolished.value = false;
+    activeReviewAction.value = "analyze";
 }
 
 function abortReviewStream() {
@@ -700,11 +715,29 @@ function reconnectReviewStream() {
     startReviewStream(lastUpload.value.compositionId);
 }
 
-async function startReviewStream(compositionId) {
+function polishReviewOutput() {
+    if (!lastUpload.value?.compositionId || !reviewText.value.trim()) {
+        return;
+    }
+
+    startReviewStream(lastUpload.value.compositionId, {
+        action: "polish",
+        reviewRunId: reviewId.value,
+        sourceText: reviewText.value,
+    });
+}
+
+async function startReviewStream(compositionId, options = {}) {
+    const action = options.action ?? "analyze";
+    const previousReviewText = reviewText.value;
     abortReviewStream();
     reviewText.value = "";
     reviewError.value = "";
-    reviewId.value = "";
+    if (action === "analyze") {
+        reviewId.value = "";
+        reviewPolished.value = false;
+    }
+    activeReviewAction.value = action;
 
     if (!reviewStreamUrl) {
         reviewStatus.value = "not_configured";
@@ -724,7 +757,10 @@ async function startReviewStream(compositionId) {
     const controller = new AbortController();
     reviewAbortController = controller;
     reviewStatus.value = "connecting";
-    reviewMessage.value = "Connecting to engraving review stream.";
+    reviewMessage.value =
+        action === "polish"
+            ? "Connecting to polish stream."
+            : "Connecting to engraving review stream.";
 
     try {
         const response = await fetch(reviewStreamUrl, {
@@ -735,7 +771,10 @@ async function startReviewStream(compositionId) {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
+                action,
                 composition_id: compositionId,
+                review_run_id: options.reviewRunId ?? "",
+                source_text: options.sourceText ?? "",
             }),
             signal: controller.signal,
         });
@@ -756,8 +795,13 @@ async function startReviewStream(compositionId) {
 
         if (reviewAbortController === controller && reviewStatus.value !== "error") {
             reviewStatus.value = "complete";
+            if (action === "polish") {
+                reviewPolished.value = true;
+            }
             reviewMessage.value = reviewText.value
-                ? "Engraving review complete."
+                ? action === "polish"
+                    ? "Polished engraving review complete."
+                    : "Engraving review complete."
                 : "Engraving review stream closed.";
         }
     } catch (error) {
@@ -769,6 +813,9 @@ async function startReviewStream(compositionId) {
         reviewMessage.value = "Engraving review stream interrupted.";
         reviewError.value =
             error instanceof Error ? error.message : "Unable to stream engraving review.";
+        if (action === "polish" && !reviewText.value) {
+            reviewText.value = previousReviewText;
+        }
     } finally {
         if (reviewAbortController === controller) {
             reviewAbortController = null;
@@ -863,7 +910,12 @@ function handleReviewSseEvent({ event, data }) {
 
     if (event === "done") {
         reviewStatus.value = "complete";
-        reviewMessage.value = "Engraving review complete.";
+        if (payload.polished) {
+            reviewPolished.value = true;
+        }
+        reviewMessage.value = payload.polished
+            ? "Polished engraving review complete."
+            : "Engraving review complete.";
         reviewId.value = payload.review_id ?? payload.id ?? "";
         return;
     }
@@ -1251,6 +1303,14 @@ function formatBytes(bytes) {
                     <p v-if="reviewError" class="error-text">
                         {{ reviewError }}
                     </p>
+                    <button
+                        v-if="canPolishReview"
+                        class="button"
+                        type="button"
+                        @click="polishReviewOutput"
+                    >
+                        Polish output
+                    </button>
                     <button
                         v-if="canReconnectReview"
                         class="button"
