@@ -19,9 +19,9 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
 Server-only Vercel environment variables:
 
 ```sh
-QWEN_OPENAI_API_KEY=your-qwen-openai-compatible-api-key
-QWEN_OPENAI_BASE_URL=https://your-qwen-openai-compatible-endpoint/v1
-QWEN_OPENAI_MODEL=Qwen/Qwen3-VL-8B-Instruct
+HF_TOKEN=your-hugging-face-token
+QWEN_OPENAI_BASE_URL=https://router.huggingface.co/v1
+QWEN_OPENAI_MODEL=Qwen/Qwen3-VL-8B-Instruct:novita
 QWEN_MAX_PAGES=12
 QWEN_PAGES_PER_CALL=3
 QWEN_RENDER_SCALE=2
@@ -30,8 +30,8 @@ ANTHROPIC_POLISH_MODEL=claude-haiku-4-5
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
 
-Do not put a service role key, Qwen API key, or Anthropic API key in the Vue app
-or expose it with a `VITE_` prefix.
+Do not put a service role key, Hugging Face token, Qwen API key, or Anthropic
+API key in the Vue app or expose it with a `VITE_` prefix.
 
 Local Supabase Google OAuth secret:
 

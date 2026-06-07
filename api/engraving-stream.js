@@ -8,7 +8,8 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { WorkerMessageHandler } from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 
 const REVIEW_PROMPT_VERSION = "2026-05-30";
-const DEFAULT_QWEN_MODEL = "Qwen/Qwen3-VL-8B-Instruct";
+const DEFAULT_QWEN_BASE_URL = "https://router.huggingface.co/v1";
+const DEFAULT_QWEN_MODEL = "Qwen/Qwen3-VL-8B-Instruct:novita";
 const DEFAULT_HAIKU_MODEL = "claude-haiku-4-5";
 const DEFAULT_MAX_PAGES = 12;
 const DEFAULT_PAGES_PER_CALL = 3;
@@ -199,19 +200,21 @@ export default async function handler(req, res) {
 }
 
 function getQwenConfig() {
-  const apiKey = process.env.QWEN_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY;
-  const baseURL = process.env.QWEN_OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL;
+  const apiKey =
+    process.env.QWEN_OPENAI_API_KEY ??
+    process.env.HF_TOKEN ??
+    process.env.OPENAI_API_KEY;
+  const baseURL =
+    process.env.QWEN_OPENAI_BASE_URL ??
+    process.env.OPENAI_BASE_URL ??
+    DEFAULT_QWEN_BASE_URL;
   const model =
     process.env.QWEN_OPENAI_MODEL ??
     process.env.QWEN_ENGRAVING_MODEL ??
     DEFAULT_QWEN_MODEL;
 
   if (!apiKey) {
-    throw new Error("QWEN_OPENAI_API_KEY is not configured.");
-  }
-
-  if (!baseURL) {
-    throw new Error("QWEN_OPENAI_BASE_URL is not configured.");
+    throw new Error("Set QWEN_OPENAI_API_KEY or HF_TOKEN for Qwen engraving review.");
   }
 
   return { apiKey, baseURL, model };
