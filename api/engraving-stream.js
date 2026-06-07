@@ -819,6 +819,16 @@ function buildAnthropicImageBlock(page) {
   };
 }
 
+function buildCachedSystem(system) {
+  return [
+    {
+      cache_control: { type: "ephemeral" },
+      text: system,
+      type: "text",
+    },
+  ];
+}
+
 async function createOpusMessage({
   anthropic,
   captureSupabase,
@@ -839,13 +849,18 @@ async function createOpusMessage({
   let messageJson = {};
   let usageJson = {};
   const responseId = randomUUID();
+  const promptCache = {
+    enabled: true,
+    scope: "system",
+    type: "ephemeral",
+  };
 
   try {
     const message = await anthropic.messages.create({
       max_tokens: maxTokens,
       messages,
       model,
-      system,
+      system: buildCachedSystem(system),
     });
     messageJson = toJson(message);
     usageJson = mergeUsage(usageJson, message.usage);
@@ -857,7 +872,10 @@ async function createOpusMessage({
     await recordReviewResponse(captureSupabase, {
       compositionId: composition.id,
       errorMessage,
-      inputSummary,
+      inputSummary: {
+        ...inputSummary,
+        prompt_cache: promptCache,
+      },
       messageJson,
       model,
       output,

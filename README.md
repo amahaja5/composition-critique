@@ -38,6 +38,10 @@ renders pages to images, asks Opus for engraving findings, then streams a
 findings report back to the browser. The user can then click **Polish output** to
 run the optional Haiku polish pass.
 
+Opus engraving and routing calls use Anthropic prompt caching on the stable
+system prompt, so repeated page batches can reuse the assembled engraving
+rulebook while each request still sends fresh rendered page images.
+
 When `SUPABASE_SERVICE_ROLE_KEY` is configured, Opus findings, optional Haiku
 polish responses, and normalized engraving findings are stored under a shared
 `review_runs` row for DPO/evaluation preparation. Prompt files are loaded from
