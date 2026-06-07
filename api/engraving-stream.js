@@ -148,6 +148,11 @@ export default async function handler(req, res) {
       qwenConfig,
       reviewRunId,
     });
+    logRoutingDecision({
+      compositionId,
+      reviewRunId,
+      routingMetadata: routingContext.metadata,
+    });
     await updateReviewRunMetadata(captureSupabase, reviewRunId, {
       asset_count: pdfAssets.length,
       asset_types: pdfAssets.map((asset) => asset.asset_type),
@@ -203,7 +208,6 @@ export default async function handler(req, res) {
         composition,
         findings,
         pages,
-        routingMetadata: routingContext.metadata,
       }),
     });
 
@@ -1117,24 +1121,24 @@ function buildPolishInput({ composition, sourceText }) {
   ].join("\n");
 }
 
-function buildFindingsMarkdown({ composition, findings, pages, routingMetadata }) {
+function logRoutingDecision({ compositionId, reviewRunId, routingMetadata }) {
+  console.info("[engraving] Routing Decision", {
+    composition_id: compositionId,
+    detected_instruments: routingMetadata?.detected_instruments ?? [],
+    doc_type: routingMetadata?.doc_type ?? "unknown",
+    effective_instruments: routingMetadata?.instruments ?? [],
+    loaded_chapters: routingMetadata?.selected_chapters ?? [],
+    review_run_id: reviewRunId,
+    routing_source: routingMetadata?.routing_source ?? "unknown",
+  });
+}
+
+function buildFindingsMarkdown({ composition, findings, pages }) {
   const lines = [
     "## Engraving Findings",
     "",
     `Composition: ${composition.title}`,
     `Rendered pages inspected: ${pages.length}`,
-    "",
-    "### Routing Decision",
-    "",
-    `- routing_source: ${formatJsonValue(routingMetadata?.routing_source ?? "unknown")}`,
-    `- detected_instruments: ${formatJsonValue(
-      routingMetadata?.detected_instruments ?? [],
-    )}`,
-    `- effective_instruments: ${formatJsonValue(routingMetadata?.instruments ?? [])}`,
-    `- doc_type: ${formatJsonValue(routingMetadata?.doc_type ?? "unknown")}`,
-    `- loaded_chapters: ${formatJsonValue(
-      routingMetadata?.selected_chapters ?? [],
-    )}`,
     "",
   ];
 
@@ -1173,10 +1177,6 @@ function buildFindingsMarkdown({ composition, findings, pages, routingMetadata }
   }
 
   return `${lines.join("\n")}Use **Polish output** for a cleaner composer-facing version.\n`;
-}
-
-function formatJsonValue(value) {
-  return `\`${JSON.stringify(value)}\``;
 }
 
 function severityRank(severity) {
