@@ -8,7 +8,7 @@ The app currently wires:
 - Supabase Storage uploads to the `compositions` bucket
 - Postgres inserts for `compositions`, `composition_assets`, and `upload_events`
 - ownership via the logged-in Supabase user id on every submission row and path
-- live engraving review streaming through a server-side Qwen endpoint
+- live engraving review streaming through a server-side Anthropic Opus endpoint
 
 ## Environment
 
@@ -18,30 +18,27 @@ Create `.env.local` from `.env.example`:
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
 VITE_REVIEW_STREAM_URL=/api/engraving-stream
-HF_TOKEN=your-hugging-face-token
-QWEN_OPENAI_BASE_URL=https://router.huggingface.co/v1
-QWEN_OPENAI_MODEL=Qwen/Qwen3-VL-8B-Instruct:novita
-QWEN_MAX_PAGES=12
-QWEN_PAGES_PER_CALL=3
-QWEN_RENDER_SCALE=2
-ANTHROPIC_API_KEY=your-anthropic-api-key-for-optional-polish
+ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_ENGRAVING_MODEL=claude-opus-4-8
 ANTHROPIC_POLISH_MODEL=claude-haiku-4-5
+ENGRAVING_MAX_PAGES=12
+ENGRAVING_PAGES_PER_CALL=3
+ENGRAVING_RENDER_SCALE=2
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
 
-The browser app must never receive a Supabase service role key, Hugging Face
-token, Qwen API key, or Anthropic API key. Those secrets are used only by the
-Vercel API function.
+The browser app must never receive a Supabase service role key or Anthropic API
+key. Those secrets are used only by the Vercel API function.
 
 ## Engraving Review Streaming
 
 The app posts uploaded composition ids to `/api/engraving-stream`. That Vercel
 API function validates the Supabase user session, loads the submitted PDF,
-renders pages to images, asks Qwen for engraving findings, then streams a
+renders pages to images, asks Opus for engraving findings, then streams a
 findings report back to the browser. The user can then click **Polish output** to
 run the optional Haiku polish pass.
 
-When `SUPABASE_SERVICE_ROLE_KEY` is configured, Qwen findings, optional Haiku
+When `SUPABASE_SERVICE_ROLE_KEY` is configured, Opus findings, optional Haiku
 polish responses, and normalized engraving findings are stored under a shared
 `review_runs` row for DPO/evaluation preparation. Prompt files are loaded from
 `system_prompts/`, which is intentionally ignored because those prompts live in

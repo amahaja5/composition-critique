@@ -19,19 +19,17 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
 Server-only Vercel environment variables:
 
 ```sh
-HF_TOKEN=your-hugging-face-token
-QWEN_OPENAI_BASE_URL=https://router.huggingface.co/v1
-QWEN_OPENAI_MODEL=Qwen/Qwen3-VL-8B-Instruct:novita
-QWEN_MAX_PAGES=12
-QWEN_PAGES_PER_CALL=3
-QWEN_RENDER_SCALE=2
-ANTHROPIC_API_KEY=your-anthropic-api-key-for-optional-polish
+ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_ENGRAVING_MODEL=claude-opus-4-8
 ANTHROPIC_POLISH_MODEL=claude-haiku-4-5
+ENGRAVING_MAX_PAGES=12
+ENGRAVING_PAGES_PER_CALL=3
+ENGRAVING_RENDER_SCALE=2
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
 
-Do not put a service role key, Hugging Face token, Qwen API key, or Anthropic
-API key in the Vue app or expose it with a `VITE_` prefix.
+Do not put a service role key or Anthropic API key in the Vue app or expose it
+with a `VITE_` prefix.
 
 Local Supabase Google OAuth secret:
 
@@ -106,7 +104,7 @@ Engraving review capture for DPO/evaluation data is in
 `supabase/migrations/20260530120000_create_review_capture_schema.sql`. It
 creates `review_runs`, `review_responses`, and `engraving_findings`, grants
 writes to `service_role`, and lets authenticated users read only their own review
-rows. The live review endpoint renders the submitted PDF pages and asks Qwen for
+rows. The live review endpoint renders the submitted PDF pages and asks Opus for
 engraving findings. The user can optionally click **Polish output** to ask Haiku
 to polish those findings into Markdown.
 

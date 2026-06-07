@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createCanvas } from "@napi-rs/canvas";
-import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -14,8 +13,7 @@ import {
 } from "./lib/engravingPromptAssembler.js";
 
 const REVIEW_PROMPT_VERSION = "2026-06-07";
-const DEFAULT_QWEN_BASE_URL = "https://router.huggingface.co/v1";
-const DEFAULT_QWEN_MODEL = "Qwen/Qwen3-VL-8B-Instruct:novita";
+const DEFAULT_OPUS_MODEL = "claude-opus-4-8";
 const DEFAULT_HAIKU_MODEL = "claude-haiku-4-5";
 const DEFAULT_MAX_PAGES = 12;
 const DEFAULT_PAGES_PER_CALL = 3;
@@ -107,11 +105,8 @@ export default async function handler(req, res) {
       return;
     }
 
-    const qwenConfig = getQwenConfig();
-    const qwen = new OpenAI({
-      apiKey: qwenConfig.apiKey,
-      baseURL: qwenConfig.baseURL,
-    });
+    const opusConfig = getOpusConfig();
+    const anthropic = new Anthropic({ apiKey: opusConfig.apiKey });
 
     sendSse(res, "status", { message: "Loading submitted PDF." });
     const { composition, assets } = await loadSubmission(supabase, compositionId);
@@ -124,9 +119,9 @@ export default async function handler(req, res) {
     await createReviewRun(captureSupabase, {
       assets: pdfAssets,
       compositionId,
-      model: qwenConfig.model,
+      model: opusConfig.model,
       ownerId: userData.user.id,
-      provider: "qwen_openai",
+      provider: "anthropic",
       reviewRunId,
     });
 
@@ -142,10 +137,10 @@ export default async function handler(req, res) {
       body,
       captureSupabase,
       composition,
+      anthropic,
       ownerId: userData.user.id,
       pages,
-      qwen,
-      qwenConfig,
+      opusConfig,
       reviewRunId,
     });
     logRoutingDecision({
@@ -159,10 +154,11 @@ export default async function handler(req, res) {
       prompt_routing: routingContext.metadata,
     });
 
-    sendSse(res, "status", { message: "Inspecting engraving details with Qwen." });
+    sendSse(res, "status", { message: "Inspecting engraving details with Opus." });
     const findings = [];
     for (const pageBatch of chunkItems(pages, renderOptions.pagesPerCall)) {
-      const response = await streamQwenChat({
+      const response = await createOpusMessage({
+        anthropic,
         captureSupabase,
         composition,
         inputSummary: {
@@ -173,13 +169,11 @@ export default async function handler(req, res) {
           composition,
           pageBatch,
           routingMetadata: routingContext.metadata,
-          systemPrompt: routingContext.prompt,
         }),
-        model: qwenConfig.model,
+        model: opusConfig.model,
         ownerId: userData.user.id,
         promptName: "engraving_scoped_page_analysis_system_prompt",
-        provider: "qwen_openai",
-        qwen,
+        provider: "anthropic",
         responseKind: "engraving_page_analysis",
         reviewRunId,
         system: routingContext.prompt,
@@ -256,10 +250,7 @@ async function handlePolishRequest({
     await createReviewRun(captureSupabase, {
       assets: [],
       compositionId,
-      model:
-        process.env.ANTHROPIC_POLISH_MODEL ??
-        process.env.ANTHROPIC_MODEL ??
-        DEFAULT_HAIKU_MODEL,
+      model: process.env.ANTHROPIC_POLISH_MODEL ?? DEFAULT_HAIKU_MODEL,
       ownerId,
       provider: "anthropic",
       reviewRunId,
@@ -276,14 +267,11 @@ async function handlePolishRequest({
     captureSupabase,
     compositionId,
     inputSummary: {
-      source: "visible_qwen_engraving_findings",
+      source: "visible_opus_engraving_findings",
       source_text_chars: sourceText.length,
       source_text_sha256: hashText(sourceText),
     },
-    model:
-      process.env.ANTHROPIC_POLISH_MODEL ??
-      process.env.ANTHROPIC_MODEL ??
-      DEFAULT_HAIKU_MODEL,
+    model: process.env.ANTHROPIC_POLISH_MODEL ?? DEFAULT_HAIKU_MODEL,
     ownerId,
     promptName: "engraving_polish_system_prompt",
     provider: "anthropic",
@@ -312,42 +300,31 @@ async function loadComposition(supabase, compositionId) {
   return composition;
 }
 
-function getQwenConfig() {
-  const baseURL =
-    process.env.QWEN_OPENAI_BASE_URL ??
-    process.env.OPENAI_BASE_URL ??
-    DEFAULT_QWEN_BASE_URL;
-  const isHuggingFaceRouter = baseURL.includes("router.huggingface.co");
-  const apiKey = isHuggingFaceRouter
-    ? process.env.QWEN_OPENAI_API_KEY ?? process.env.HF_TOKEN
-    : process.env.QWEN_OPENAI_API_KEY ??
-      process.env.OPENAI_API_KEY ??
-      process.env.HF_TOKEN;
+function getOpusConfig() {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   const model =
-    process.env.QWEN_OPENAI_MODEL ??
-    process.env.QWEN_ENGRAVING_MODEL ??
-    DEFAULT_QWEN_MODEL;
+    process.env.ANTHROPIC_ENGRAVING_MODEL ??
+    DEFAULT_OPUS_MODEL;
 
   if (!apiKey) {
-    throw new Error(
-      isHuggingFaceRouter
-        ? "Set HF_TOKEN or QWEN_OPENAI_API_KEY for Hugging Face Router."
-        : "Set QWEN_OPENAI_API_KEY for Qwen engraving review.",
-    );
+    throw new Error("Set ANTHROPIC_API_KEY for Opus engraving review.");
   }
 
-  return { apiKey, baseURL, model };
+  return { apiKey, model };
 }
 
 function getRenderOptions() {
   return {
-    maxPages: toPositiveInt(process.env.QWEN_MAX_PAGES, DEFAULT_MAX_PAGES),
+    maxPages: toPositiveInt(
+      process.env.ENGRAVING_MAX_PAGES,
+      DEFAULT_MAX_PAGES,
+    ),
     pagesPerCall: toPositiveInt(
-      process.env.QWEN_PAGES_PER_CALL,
+      process.env.ENGRAVING_PAGES_PER_CALL,
       DEFAULT_PAGES_PER_CALL,
     ),
     renderScale: toPositiveNumber(
-      process.env.QWEN_RENDER_SCALE,
+      process.env.ENGRAVING_RENDER_SCALE,
       DEFAULT_RENDER_SCALE,
     ),
   };
@@ -462,13 +439,13 @@ async function renderSubmittedPdfPages(supabase, pdfAssets, options) {
 }
 
 async function resolveEngravingRouting({
+  anthropic,
   body,
   captureSupabase,
   composition,
   ownerId,
   pages,
-  qwen,
-  qwenConfig,
+  opusConfig,
   reviewRunId,
 }) {
   const manifest = await loadEngravingManifest();
@@ -478,10 +455,10 @@ async function resolveEngravingRouting({
     ? await detectEngravingRouting({
         captureSupabase,
         composition,
+        anthropic,
         ownerId,
         pages,
-        qwen,
-        qwenConfig,
+        opusConfig,
         reviewRunId,
       })
     : null;
@@ -517,17 +494,18 @@ async function resolveEngravingRouting({
 }
 
 async function detectEngravingRouting({
+  anthropic,
   captureSupabase,
   composition,
   ownerId,
   pages,
-  qwen,
-  qwenConfig,
+  opusConfig,
   reviewRunId,
 }) {
   const detectionPages = pages.slice(0, 3);
   const detectionPrompt = await loadDetectionPrompt();
-  const response = await streamQwenChat({
+  const response = await createOpusMessage({
+    anthropic,
     captureSupabase,
     composition,
     inputSummary: {
@@ -538,13 +516,11 @@ async function detectEngravingRouting({
     messages: buildInstrumentationDetectionMessages({
       composition,
       pageBatch: detectionPages,
-      systemPrompt: detectionPrompt,
     }),
-    model: qwenConfig.model,
+    model: opusConfig.model,
     ownerId,
     promptName: "engraving_instrumentation_detection_system_prompt",
-    provider: "qwen_openai",
-    qwen,
+    provider: "anthropic",
     responseKind: "engraving_instrumentation_detection",
     reviewRunId,
     system: detectionPrompt,
@@ -767,13 +743,8 @@ class NodeCanvasFactory {
   }
 }
 
-function buildInstrumentationDetectionMessages({
-  composition,
-  pageBatch,
-  systemPrompt,
-}) {
+function buildInstrumentationDetectionMessages({ composition, pageBatch }) {
   return [
-    { role: "system", content: systemPrompt },
     {
       role: "user",
       content: [
@@ -793,12 +764,7 @@ function buildInstrumentationDetectionMessages({
             ),
           ].join("\n"),
         },
-        ...pageBatch.map((page) => ({
-          type: "image_url",
-          image_url: {
-            url: page.dataUrl,
-          },
-        })),
+        ...pageBatch.map((page) => buildAnthropicImageBlock(page)),
       ],
     },
   ];
@@ -808,10 +774,8 @@ function buildPageAnalysisMessages({
   composition,
   pageBatch,
   routingMetadata,
-  systemPrompt,
 }) {
   return [
-    { role: "system", content: systemPrompt },
     {
       role: "user",
       content: [
@@ -838,18 +802,25 @@ function buildPageAnalysisMessages({
             ),
           ].join("\n"),
         },
-        ...pageBatch.map((page) => ({
-          type: "image_url",
-          image_url: {
-            url: page.dataUrl,
-          },
-        })),
+        ...pageBatch.map((page) => buildAnthropicImageBlock(page)),
       ],
     },
   ];
 }
 
-async function streamQwenChat({
+function buildAnthropicImageBlock(page) {
+  return {
+    source: {
+      data: page.dataUrl.replace(/^data:image\/png;base64,/, ""),
+      media_type: "image/png",
+      type: "base64",
+    },
+    type: "image",
+  };
+}
+
+async function createOpusMessage({
+  anthropic,
   captureSupabase,
   composition,
   inputSummary,
@@ -859,7 +830,6 @@ async function streamQwenChat({
   ownerId,
   promptName,
   provider,
-  qwen,
   responseKind,
   reviewRunId,
   system,
@@ -869,39 +839,20 @@ async function streamQwenChat({
   let messageJson = {};
   let usageJson = {};
   const responseId = randomUUID();
-  const streamEvents = [];
 
   try {
-    const stream = await qwen.chat.completions.create({
+    const message = await anthropic.messages.create({
       max_tokens: maxTokens,
       messages,
       model,
-      stream: true,
-      stream_options: { include_usage: true },
+      system,
       temperature: 0.1,
     });
-
-    for await (const chunk of stream) {
-      const chunkJson = toJson(chunk);
-      streamEvents.push(chunkJson);
-      usageJson = mergeUsage(usageJson, chunk.usage);
-      const choice = chunk.choices?.[0];
-      if (choice?.delta) {
-        messageJson = {
-          ...messageJson,
-          role: choice.delta.role ?? messageJson.role ?? "assistant",
-        };
-      }
-      const text = extractChatDeltaText(choice?.delta?.content);
-      if (text) output += text;
-      if (choice?.finish_reason) {
-        messageJson.finish_reason = choice.finish_reason;
-      }
-    }
-
-    messageJson.content = output;
+    messageJson = toJson(message);
+    usageJson = mergeUsage(usageJson, message.usage);
+    output = extractAnthropicText(message.content);
   } catch (error) {
-    errorMessage = formatProviderError("Qwen engraving analysis", error);
+    errorMessage = formatProviderError("Opus engraving analysis", error);
     throw new Error(errorMessage, { cause: error });
   } finally {
     await recordReviewResponse(captureSupabase, {
@@ -918,7 +869,7 @@ async function streamQwenChat({
       responseKind,
       reviewRunId,
       status: errorMessage ? "failed" : "completed",
-      streamEvents,
+      streamEvents: [],
       system,
       usageJson,
     });
@@ -992,20 +943,6 @@ async function createHaikuPolish({
   return output;
 }
 
-function extractChatDeltaText(content) {
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === "string") return part;
-        return part?.text ?? "";
-      })
-      .join("");
-  }
-  return "";
-}
-
 function extractAnthropicText(content) {
   if (!Array.isArray(content)) return "";
   return content
@@ -1044,7 +981,7 @@ function parseJsonObject(text) {
   try {
     return JSON.parse(withoutFence.slice(start, end + 1));
   } catch (error) {
-    console.warn("[engraving] Unable to parse Qwen findings JSON.", error);
+    console.warn("[engraving] Unable to parse engraving findings JSON.", error);
     return {};
   }
 }
