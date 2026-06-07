@@ -846,7 +846,6 @@ async function createOpusMessage({
       messages,
       model,
       system,
-      temperature: 0.1,
     });
     messageJson = toJson(message);
     usageJson = mergeUsage(usageJson, message.usage);
@@ -910,7 +909,6 @@ async function createHaikuPolish({
       messages: [{ role: "user", content: userText }],
       model,
       system,
-      temperature: 0.2,
     });
     messageJson = toJson(message);
     usageJson = mergeUsage(usageJson, message.usage);
