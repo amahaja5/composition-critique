@@ -203,6 +203,7 @@ export default async function handler(req, res) {
         composition,
         findings,
         pages,
+        routingMetadata: routingContext.metadata,
       }),
     });
 
@@ -488,6 +489,8 @@ async function resolveEngravingRouting({
   const assembly = await assembleEngravingPrompt({ routing });
   const metadata = {
     confidence: assembly.routing.confidence,
+    detected_instrument_families: detectedRouting?.instrument_families ?? [],
+    detected_instruments: detectedRouting?.instruments ?? [],
     detection_page_ids: detectedRouting?.source_page_ids ?? [],
     doc_type: assembly.routing.doc_type,
     features: assembly.routing.features,
@@ -555,8 +558,8 @@ async function detectEngravingRouting({
       typeof parsed.has_staff_system === "boolean"
         ? parsed.has_staff_system
         : null,
-    instrument_families: parsed.instrument_families,
-    instruments: parsed.instruments,
+    instrument_families: toStringList(parsed.instrument_families),
+    instruments: toStringList(parsed.instruments),
     source: "detected",
     source_page_ids: detectionPages.map((page) => page.sourcePageId),
   };
@@ -604,7 +607,11 @@ function mergeRoutingInputs({ detectedRouting, manifest, requestRouting }) {
     requestRouting.features && typeof requestRouting.features === "object"
       ? requestRouting.features
       : {};
-  const features = { ...manifest.feature_defaults, ...detectedFeatures };
+  const detectionUsable = isDetectedRoutingUsable(detectedRouting);
+  const features = {
+    ...manifest.feature_defaults,
+    ...(detectionUsable ? detectedFeatures : {}),
+  };
 
   for (const [key, value] of Object.entries(requestFeatures)) {
     if (value === true || value === false) {
@@ -614,27 +621,74 @@ function mergeRoutingInputs({ detectedRouting, manifest, requestRouting }) {
 
   const hasRequestInstruments = requestRouting.hasExplicitInstruments;
   const hasRequestDocType = requestRouting.hasExplicitDocType;
-  const source = detectedRouting
-    ? hasRequestInstruments || hasRequestDocType || requestRouting.hasExplicitFeatures
-      ? "request_and_detected"
-      : "detected"
-    : "request";
+  const hasRequestRouting =
+    hasRequestInstruments ||
+    hasRequestDocType ||
+    requestRouting.hasExplicitFeatures;
+  const source = hasRequestRouting
+    ? "request"
+    : detectionUsable
+      ? "detected"
+      : "fallback";
 
   return {
-    confidence: detectedRouting?.confidence ?? (source === "request" ? 1 : 0),
+    confidence: detectedRouting?.confidence ?? (hasRequestRouting ? 1 : 0),
     doc_type: hasRequestDocType
       ? requestRouting.doc_type
-      : detectedRouting?.doc_type ?? "unknown",
+      : detectionUsable
+        ? detectedRouting?.doc_type
+        : "unknown",
     features,
     has_staff_system: detectedRouting?.has_staff_system ?? null,
     instrument_families: hasRequestInstruments
       ? requestRouting.instrument_families
-      : detectedRouting?.instrument_families,
+      : detectionUsable
+        ? detectedRouting?.instrument_families
+        : [],
     instruments: hasRequestInstruments
       ? requestRouting.instruments
-      : detectedRouting?.instruments,
+      : detectionUsable
+        ? detectedRouting?.instruments
+        : [],
     source,
   };
+}
+
+function isDetectedRoutingUsable(detectedRouting) {
+  if (!detectedRouting) return false;
+  if (detectedRouting.has_staff_system === false) return false;
+  if (
+    typeof detectedRouting.confidence === "number" &&
+    detectedRouting.confidence < 0.6
+  ) {
+    return false;
+  }
+
+  return (
+    hasItems(detectedRouting.instruments) ||
+    hasItems(detectedRouting.instrument_families) ||
+    ["score", "part"].includes(String(detectedRouting.doc_type ?? "").toLowerCase()) ||
+    hasExplicitFeatureValue(detectedRouting.features)
+  );
+}
+
+function hasItems(value) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function hasExplicitFeatureValue(features) {
+  return (
+    features &&
+    typeof features === "object" &&
+    Object.values(features).some((value) => value === true || value === false)
+  );
+}
+
+function toStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
 }
 
 async function renderPdfPages({ asset, maxPages, pdfBytes, renderScale }) {
@@ -1063,12 +1117,24 @@ function buildPolishInput({ composition, sourceText }) {
   ].join("\n");
 }
 
-function buildFindingsMarkdown({ composition, findings, pages }) {
+function buildFindingsMarkdown({ composition, findings, pages, routingMetadata }) {
   const lines = [
     "## Engraving Findings",
     "",
     `Composition: ${composition.title}`,
     `Rendered pages inspected: ${pages.length}`,
+    "",
+    "### Routing Decision",
+    "",
+    `- routing_source: ${formatJsonValue(routingMetadata?.routing_source ?? "unknown")}`,
+    `- detected_instruments: ${formatJsonValue(
+      routingMetadata?.detected_instruments ?? [],
+    )}`,
+    `- effective_instruments: ${formatJsonValue(routingMetadata?.instruments ?? [])}`,
+    `- doc_type: ${formatJsonValue(routingMetadata?.doc_type ?? "unknown")}`,
+    `- loaded_chapters: ${formatJsonValue(
+      routingMetadata?.selected_chapters ?? [],
+    )}`,
     "",
   ];
 
@@ -1107,6 +1173,10 @@ function buildFindingsMarkdown({ composition, findings, pages }) {
   }
 
   return `${lines.join("\n")}Use **Polish output** for a cleaner composer-facing version.\n`;
+}
+
+function formatJsonValue(value) {
+  return `\`${JSON.stringify(value)}\``;
 }
 
 function severityRank(severity) {
