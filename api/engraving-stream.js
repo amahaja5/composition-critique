@@ -503,9 +503,8 @@ async function streamQwenChat({
 
     messageJson.content = output;
   } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "Qwen engraving analysis failed.";
-    throw error;
+    errorMessage = formatProviderError("Qwen engraving analysis", error);
+    throw new Error(errorMessage, { cause: error });
   } finally {
     await recordReviewResponse(captureSupabase, {
       compositionId: composition.id,
@@ -586,9 +585,8 @@ async function streamHaikuPolish({
       }
     }
   } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "Haiku engraving polish failed.";
-    throw error;
+    errorMessage = formatProviderError("Haiku engraving polish", error);
+    throw new Error(errorMessage, { cause: error });
   } finally {
     await recordReviewResponse(captureSupabase, {
       compositionId,
@@ -625,6 +623,15 @@ function extractChatDeltaText(content) {
       .join("");
   }
   return "";
+}
+
+function formatProviderError(source, error) {
+  if (!(error instanceof Error)) {
+    return `${source} failed.`;
+  }
+
+  const status = error.status ? ` ${error.status}` : "";
+  return `${source} failed${status}: ${error.message}`;
 }
 
 function parseJsonObject(text) {
