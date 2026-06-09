@@ -66,4 +66,31 @@ assert.deepEqual(snapped.rect, {
 const unlocalized = snapFindingToGeometry({ system_number: 9 }, geometry);
 assert.equal(unlocalized.unlocalized, true);
 
+const rightEdge = snapFindingToGeometry(
+  {
+    evidence: "The meter change is crowded at the right edge of the system.",
+    measure_number: 1,
+    staff_label: "Guitar",
+    system_number: 1,
+  },
+  geometry,
+);
+assert.equal(rightEdge.unlocalized, false);
+assert.ok(rightEdge.rect.x > 0.5, "right-edge text should choose the right side of the system");
+
+const bboxOverride = snapFindingToGeometry(
+  {
+    bbox_hint: [0.6, 0.24, 0.05, 0.03],
+    measure_number: 1,
+    staff_label: "Guitar",
+    system_number: 1,
+  },
+  geometry,
+);
+assert.equal(bboxOverride.unlocalized, false);
+assert.ok(
+  bboxOverride.rect.x > snapped.rect.x,
+  "bbox hints inside the same staff/system can override a mismatched measure",
+);
+
 console.log("Overlay geometry checks passed.");

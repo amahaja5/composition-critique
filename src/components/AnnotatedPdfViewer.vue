@@ -313,22 +313,20 @@ function markerStyle(marker) {
 
 function popoverStyle(marker) {
     const rect = marker.rect;
-    const isLeftSide = rect.x < 0.5;
-    const isUpperPage = rect.y < 0.68;
-    const horizontalGap = 1.4;
-    const verticalGap = 1.4;
-    const style = {};
+    const style = {
+        maxWidth: "min(420px, calc(100% - 36px))",
+    };
 
-    if (isLeftSide) {
-        style.left = `${Math.min((rect.x + rect.width) * 100 + horizontalGap, 64)}%`;
+    if (rect.x < 0.5) {
+        style.right = "18px";
     } else {
-        style.right = `${Math.min((1 - rect.x) * 100 + horizontalGap, 64)}%`;
+        style.left = "18px";
     }
 
-    if (isUpperPage) {
-        style.top = `${Math.min((rect.y + rect.height) * 100 + verticalGap, 76)}%`;
+    if (rect.y < 0.5) {
+        style.bottom = "18px";
     } else {
-        style.bottom = `${Math.min((1 - rect.y) * 100 + verticalGap, 76)}%`;
+        style.top = "18px";
     }
 
     return style;

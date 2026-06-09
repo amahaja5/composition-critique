@@ -8,7 +8,7 @@ The app currently wires:
 - Supabase Storage uploads to the `compositions` bucket
 - Postgres inserts for `compositions`, `composition_assets`, and `upload_events`
 - ownership via the logged-in Supabase user id on every submission row and path
-- live engraving review streaming through a server-side Anthropic Opus endpoint
+- live engraving review streaming through a server-side Anthropic endpoint
 
 ## Environment
 
@@ -19,7 +19,10 @@ VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
 VITE_REVIEW_STREAM_URL=/api/engraving-stream
 ANTHROPIC_API_KEY=your-anthropic-api-key
-ANTHROPIC_ENGRAVING_MODEL=claude-opus-4-8
+ANTHROPIC_ENGRAVING_MODEL=claude-sonnet-4-6
+ANTHROPIC_ENGRAVING_ADVISOR_ENABLED=true
+ANTHROPIC_ENGRAVING_ADVISOR_MODEL=claude-opus-4-8
+ANTHROPIC_ENGRAVING_ADVISOR_MAX_USES=1
 ANTHROPIC_POLISH_MODEL=claude-haiku-4-5
 ENGRAVING_MAX_PAGES=12
 ENGRAVING_PAGES_PER_CALL=3
@@ -34,20 +37,24 @@ key. Those secrets are used only by the Vercel API function.
 
 The app posts uploaded composition ids to `/api/engraving-stream`. That Vercel
 API function validates the Supabase user session, loads the submitted PDF,
-renders pages to images, asks Opus for engraving findings, then streams a
-findings report back to the browser. The user can then click **Polish output** to
+renders pages to images, asks the configured Anthropic engraving model for
+findings, then streams a findings report back to the browser. The user can then click **Polish output** to
 run the optional Haiku polish pass.
 
-Opus engraving and routing calls use Anthropic prompt caching on the stable
-system prompt, so repeated page batches can reuse the assembled engraving
-rulebook while each request still sends fresh rendered page images.
+Engraving and routing calls use Anthropic prompt caching on the stable system
+prompt, so repeated page batches can reuse the assembled engraving rulebook
+while each request still sends fresh rendered page images. To test the
+lower-cost advisor path, set `ANTHROPIC_ENGRAVING_MODEL=claude-sonnet-4-6`,
+`ANTHROPIC_ENGRAVING_ADVISOR_ENABLED=true`, and
+`ANTHROPIC_ENGRAVING_ADVISOR_MODEL=claude-opus-4-8`. The API records that model
+strategy with each review response so token usage can be compared per page.
 
-Vision few-shot examples for Opus page analysis are loaded from the prompt repo
+Vision few-shot examples for page analysis are loaded from the prompt repo
 manifest at `system_prompts/engraving/vision_examples/manifest.json`. To add a
 new example, add the image and gold JSON file there, then add one manifest entry
 with `image` and `gold`; no API code change is needed.
 
-When `SUPABASE_SERVICE_ROLE_KEY` is configured, Opus findings, optional Haiku
+When `SUPABASE_SERVICE_ROLE_KEY` is configured, engraving findings, optional Haiku
 polish responses, and normalized engraving findings are stored under a shared
 `review_runs` row for DPO/evaluation preparation. Prompt files are loaded from
 `system_prompts/`, which is intentionally ignored because those prompts live in

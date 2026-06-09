@@ -60,15 +60,14 @@ export async function loadVisionFewShotExamples({
       role: "assistant",
       content: [
         {
-          ...(index === examples.length - 1
-            ? { cache_control: { type: "ephemeral" } }
-            : {}),
           text: JSON.stringify(gold, null, 2),
           type: "text",
         },
       ],
     });
   }
+
+  markLastAssistantCacheBreakpoint(messages);
 
   return {
     messages,
@@ -85,6 +84,18 @@ export async function loadVisionFewShotExamples({
       skipped_examples: skippedExamples,
     },
   };
+}
+
+function markLastAssistantCacheBreakpoint(messages) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+    const lastBlock = message.content[message.content.length - 1];
+    if (lastBlock && typeof lastBlock === "object") {
+      lastBlock.cache_control = { type: "ephemeral" };
+    }
+    return;
+  }
 }
 
 export function buildAnthropicBase64ImageBlock({ data, mediaType }) {

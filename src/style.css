@@ -730,20 +730,22 @@ select:disabled {
 
 .finding-marker {
   --marker-color: #a85a24;
+  --marker-fill: rgba(168, 90, 36, 0.18);
   position: absolute;
   min-width: 34px;
   min-height: 28px;
-  border: 2px solid var(--marker-color);
+  border: 3px solid var(--marker-color);
   border-radius: 6px;
   padding: 0;
-  background: color-mix(in srgb, var(--marker-color) 13%, transparent);
+  background: var(--marker-fill);
   color: var(--marker-color);
   cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7);
 }
 
 .finding-marker:hover,
 .finding-marker--active {
-  background: color-mix(in srgb, var(--marker-color) 22%, transparent);
+  background: var(--marker-fill);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.86);
 }
 
@@ -765,14 +767,17 @@ select:disabled {
 
 .finding-marker--error {
   --marker-color: #bf3131;
+  --marker-fill: rgba(191, 49, 49, 0.18);
 }
 
 .finding-marker--warning {
   --marker-color: #a85a24;
+  --marker-fill: rgba(168, 90, 36, 0.18);
 }
 
 .finding-marker--suggestion {
   --marker-color: #2e6ea3;
+  --marker-fill: rgba(46, 110, 163, 0.18);
 }
 
 .finding-popover {

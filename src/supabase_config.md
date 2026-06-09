@@ -20,7 +20,10 @@ Server-only Vercel environment variables:
 
 ```sh
 ANTHROPIC_API_KEY=your-anthropic-api-key
-ANTHROPIC_ENGRAVING_MODEL=claude-opus-4-8
+ANTHROPIC_ENGRAVING_MODEL=claude-sonnet-4-6
+ANTHROPIC_ENGRAVING_ADVISOR_ENABLED=true
+ANTHROPIC_ENGRAVING_ADVISOR_MODEL=claude-opus-4-8
+ANTHROPIC_ENGRAVING_ADVISOR_MAX_USES=1
 ANTHROPIC_POLISH_MODEL=claude-haiku-4-5
 ENGRAVING_MAX_PAGES=12
 ENGRAVING_PAGES_PER_CALL=3
@@ -104,8 +107,8 @@ Engraving review capture for DPO/evaluation data is in
 `supabase/migrations/20260530120000_create_review_capture_schema.sql`. It
 creates `review_runs`, `review_responses`, and `engraving_findings`, grants
 writes to `service_role`, and lets authenticated users read only their own review
-rows. The live review endpoint renders the submitted PDF pages and asks Opus for
-engraving findings. The user can optionally click **Polish output** to ask Haiku
+rows. The live review endpoint renders the submitted PDF pages and asks the
+configured Anthropic engraving model for findings. The user can optionally click **Polish output** to ask Haiku
 to polish those findings into Markdown.
 
 Create one private bucket:

@@ -22,6 +22,7 @@ const DEFAULT_HAIKU_MODEL = "claude-haiku-4-5";
 const DEFAULT_MAX_PAGES = 12;
 const DEFAULT_PAGES_PER_CALL = 1;
 const DEFAULT_RENDER_SCALE = 2;
+const ADVISOR_BETA = "advisor-tool-2026-03-01";
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
 
 globalThis.pdfjsWorker ??= { WorkerMessageHandler };
@@ -109,8 +110,8 @@ export default async function handler(req, res) {
       return;
     }
 
-    const opusConfig = getOpusConfig();
-    const anthropic = new Anthropic({ apiKey: opusConfig.apiKey });
+    const engravingConfig = getEngravingModelConfig();
+    const anthropic = new Anthropic({ apiKey: engravingConfig.apiKey });
 
     sendSse(res, "status", { message: "Loading submitted PDF." });
     const { composition, assets } = await loadSubmission(supabase, compositionId);
@@ -123,7 +124,7 @@ export default async function handler(req, res) {
     await createReviewRun(captureSupabase, {
       assets: pdfAssets,
       compositionId,
-      model: opusConfig.model,
+      model: engravingConfig.model,
       ownerId: userData.user.id,
       provider: "anthropic",
       reviewRunId,
@@ -144,7 +145,7 @@ export default async function handler(req, res) {
       anthropic,
       ownerId: userData.user.id,
       pages,
-      opusConfig,
+      opusConfig: engravingConfig,
       reviewRunId,
     });
     logRoutingDecision({
@@ -155,13 +156,18 @@ export default async function handler(req, res) {
     await updateReviewRunMetadata(captureSupabase, reviewRunId, {
       asset_count: pdfAssets.length,
       asset_types: pdfAssets.map((asset) => asset.asset_type),
+      model_strategy: summarizeEngravingModelConfig(engravingConfig),
       prompt_routing: routingContext.metadata,
     });
     const visionFewShots = await loadVisionFewShotExamples({
       selectedRuleIds: routingContext.selectedRuleIds,
     });
 
-    sendSse(res, "status", { message: "Inspecting engraving details with Opus." });
+    sendSse(res, "status", {
+      message: engravingConfig.advisor.enabled
+        ? `Inspecting engraving details with ${engravingConfig.model} and ${engravingConfig.advisor.model} advisor.`
+        : `Inspecting engraving details with ${engravingConfig.model}.`,
+    });
     const findings = [];
     for (const pageBatch of chunkItems(pages, renderOptions.pagesPerCall)) {
       const { parsed, response } = await createValidatedPageAnalysis({
@@ -170,6 +176,7 @@ export default async function handler(req, res) {
         composition,
         inputSummary: {
           ...summarizePageBatch(pageBatch),
+          model_strategy: summarizeEngravingModelConfig(engravingConfig),
           prompt_routing: routingContext.metadata,
           vision_few_shots: visionFewShots.metadata,
         },
@@ -181,7 +188,8 @@ export default async function handler(req, res) {
             routingMetadata: routingContext.metadata,
           }),
         ],
-        model: opusConfig.model,
+        advisor: engravingConfig.advisor,
+        model: engravingConfig.model,
         ownerId: userData.user.id,
         reviewRunId,
         system: routingContext.prompt,
@@ -279,7 +287,7 @@ async function handlePolishRequest({
     captureSupabase,
     compositionId,
     inputSummary: {
-      source: "visible_opus_engraving_findings",
+      source: "visible_engraving_findings",
       source_text_chars: sourceText.length,
       source_text_sha256: hashText(sourceText),
     },
@@ -312,17 +320,47 @@ async function loadComposition(supabase, compositionId) {
   return composition;
 }
 
-function getOpusConfig() {
+function getEngravingModelConfig() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const model =
     process.env.ANTHROPIC_ENGRAVING_MODEL ??
     DEFAULT_OPUS_MODEL;
+  const advisorEnabled = toBoolean(
+    process.env.ANTHROPIC_ENGRAVING_ADVISOR_ENABLED,
+    false,
+  );
+  const advisorModel =
+    process.env.ANTHROPIC_ENGRAVING_ADVISOR_MODEL ??
+    DEFAULT_OPUS_MODEL;
+  const advisorMaxUses = toPositiveInt(
+    process.env.ANTHROPIC_ENGRAVING_ADVISOR_MAX_USES,
+    1,
+  );
 
   if (!apiKey) {
-    throw new Error("Set ANTHROPIC_API_KEY for Opus engraving review.");
+    throw new Error("Set ANTHROPIC_API_KEY for engraving review.");
   }
 
-  return { apiKey, model };
+  return {
+    advisor: {
+      beta: ADVISOR_BETA,
+      enabled: advisorEnabled,
+      maxUses: advisorMaxUses,
+      model: advisorModel,
+    },
+    apiKey,
+    model,
+  };
+}
+
+function summarizeEngravingModelConfig(config) {
+  return {
+    advisor_enabled: Boolean(config?.advisor?.enabled),
+    advisor_max_uses: config?.advisor?.enabled ? config.advisor.maxUses : 0,
+    advisor_model: config?.advisor?.enabled ? config.advisor.model : null,
+    beta: config?.advisor?.enabled ? config.advisor.beta : null,
+    primary_model: config?.model ?? DEFAULT_OPUS_MODEL,
+  };
 }
 
 function getRenderOptions() {
@@ -840,6 +878,7 @@ function buildCachedSystem(system) {
 }
 
 async function createValidatedPageAnalysis({
+  advisor,
   anthropic,
   captureSupabase,
   composition,
@@ -852,6 +891,7 @@ async function createValidatedPageAnalysis({
 }) {
   const common = {
     anthropic,
+    advisor,
     captureSupabase,
     composition,
     model,
@@ -925,6 +965,7 @@ async function createValidatedPageAnalysis({
 
 async function createOpusMessage({
   anthropic,
+  advisor = null,
   captureSupabase,
   composition,
   inputSummary,
@@ -950,20 +991,50 @@ async function createOpusMessage({
       type: "ephemeral",
     },
     vision_few_shots: inputSummary?.vision_few_shots?.cache ?? null,
+    advisor: advisor?.enabled
+      ? {
+          beta: advisor.beta,
+          caching: {
+            enabled: true,
+            scope: "advisor_prompt",
+            type: "ephemeral",
+          },
+          enabled: true,
+          max_uses: advisor.maxUses,
+          model: advisor.model,
+        }
+      : {
+          enabled: false,
+        },
   };
 
   try {
-    const message = await anthropic.messages.create({
+    const requestParams = {
       max_tokens: maxTokens,
       messages,
       model,
       system: buildCachedSystem(system),
-    });
+    };
+    const message = advisor?.enabled
+      ? await anthropic.beta.messages.create({
+          ...requestParams,
+          betas: [advisor.beta],
+          tools: [
+            {
+              caching: { type: "ephemeral" },
+              max_uses: advisor.maxUses,
+              model: advisor.model,
+              name: "advisor",
+              type: "advisor_20260301",
+            },
+          ],
+        })
+      : await anthropic.messages.create(requestParams);
     messageJson = toJson(message);
     usageJson = mergeUsage(usageJson, message.usage);
     output = extractAnthropicText(message.content);
   } catch (error) {
-    errorMessage = formatProviderError("Opus engraving analysis", error);
+    errorMessage = formatProviderError("Engraving analysis", error);
     throw new Error(errorMessage, { cause: error });
   } finally {
     await recordReviewResponse(captureSupabase, {
@@ -1571,6 +1642,15 @@ function toPositiveInt(value, fallback) {
 function toPositiveNumber(value, fallback) {
   const parsed = Number.parseFloat(value ?? "");
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
 }
 
 function mergeUsage(current, next) {

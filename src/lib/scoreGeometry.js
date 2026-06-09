@@ -12,11 +12,11 @@ export function detectScoreGeometry(canvas) {
     }
 
     const imageData = context.getImageData(0, 0, width, height);
-    const { rowCounts, columnCounts } = buildInkProfiles(imageData, width, height);
+    const { rowCounts } = buildInkProfiles(imageData, width, height);
     const staffLines = detectStaffLines(rowCounts, width);
     const staves = detectStaves(staffLines);
     const systems = groupStavesIntoSystems(staves, height).map((system, index) =>
-        addMeasuresToSystem(system, index + 1, columnCounts, imageData, width, height),
+        addMeasuresToSystem(system, index + 1, imageData, width, height),
     );
 
     return {
@@ -55,6 +55,12 @@ export function snapFindingToGeometry(finding, geometry) {
         measureNumber && Array.isArray(system.measures)
             ? system.measures.find((item) => item.index === measureNumber)
             : null;
+    const systemStaffRect = {
+        x: system.xLeft,
+        y: staff?.yTop ?? system.yTop,
+        width: system.xRight - system.xLeft,
+        height: (staff?.yBottom ?? system.yBottom) - (staff?.yTop ?? system.yTop),
+    };
 
     let pixelRect = {
         x: measure?.xLeft ?? system.xLeft,
@@ -63,7 +69,8 @@ export function snapFindingToGeometry(finding, geometry) {
         height: (staff?.yBottom ?? system.yBottom) - (staff?.yTop ?? system.yTop),
     };
 
-    pixelRect = applyBBoxHint(pixelRect, finding?.bbox_hint, width, height);
+    pixelRect = applyBBoxHint(pixelRect, finding?.bbox_hint, width, height, systemStaffRect);
+    pixelRect = applyTextPositionHint(pixelRect, finding, systemStaffRect);
 
     return {
         measureNumber,
@@ -76,7 +83,6 @@ export function snapFindingToGeometry(finding, geometry) {
 
 function buildInkProfiles(imageData, width, height) {
     const rowCounts = new Array(height).fill(0);
-    const columnCounts = new Array(width).fill(0);
     const data = imageData.data;
 
     for (let y = 0; y < height; y += 1) {
@@ -91,12 +97,11 @@ function buildInkProfiles(imageData, width, height) {
             const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
             if (luminance < DARK_THRESHOLD) {
                 rowCounts[y] += 1;
-                columnCounts[x] += 1;
             }
         }
     }
 
-    return { columnCounts, rowCounts };
+    return { rowCounts };
 }
 
 function detectStaffLines(rowCounts, width) {
@@ -206,10 +211,10 @@ function buildSystem(staves, index, pageHeight) {
     };
 }
 
-function addMeasuresToSystem(system, index, columnCounts, imageData, width, height) {
+function addMeasuresToSystem(system, index, imageData, width, height) {
     const yTop = Math.max(0, Math.floor(Math.min(...system.staves.map((staff) => staff.yTop))));
     const yBottom = Math.min(height - 1, Math.ceil(Math.max(...system.staves.map((staff) => staff.yBottom))));
-    const xRange = detectSystemXRange(columnCounts, yTop, yBottom, width);
+    const xRange = detectSystemXRange(imageData, width, yTop, yBottom);
     const barlines = detectBarlines(imageData, width, yTop, yBottom, xRange);
     const measures = buildMeasuresFromBarlines(barlines, xRange, width);
 
@@ -222,10 +227,19 @@ function addMeasuresToSystem(system, index, columnCounts, imageData, width, heig
     };
 }
 
-function detectSystemXRange(columnCounts, yTop, yBottom, width) {
+function detectSystemXRange(imageData, width, yTop, yBottom) {
+    const columnCounts = new Array(width).fill(0);
     const threshold = Math.max(3, (yBottom - yTop) * 0.025);
     let xLeft = 0;
     let xRight = width;
+
+    for (let x = 0; x < width; x += 1) {
+        for (let y = yTop; y <= yBottom; y += 1) {
+            if (isDarkPixel(imageData, width, x, y)) {
+                columnCounts[x] += 1;
+            }
+        }
+    }
 
     for (let x = 0; x < width; x += 1) {
         if (columnCounts[x] >= threshold) {
@@ -339,7 +353,7 @@ function pickStaff(system, staffLabel) {
     return null;
 }
 
-function applyBBoxHint(pixelRect, bboxHint, width, height) {
+function applyBBoxHint(pixelRect, bboxHint, width, height, guardRect = pixelRect) {
     const hint = normalizeBBoxHint(bboxHint);
     if (!hint) return pixelRect;
 
@@ -352,25 +366,50 @@ function applyBBoxHint(pixelRect, bboxHint, width, height) {
     const centerX = hintRect.x + hintRect.width / 2;
     const centerY = hintRect.y + hintRect.height / 2;
     const inside =
-        centerX >= pixelRect.x &&
-        centerX <= pixelRect.x + pixelRect.width &&
-        centerY >= pixelRect.y &&
-        centerY <= pixelRect.y + pixelRect.height;
+        centerX >= guardRect.x &&
+        centerX <= guardRect.x + guardRect.width &&
+        centerY >= guardRect.y &&
+        centerY <= guardRect.y + guardRect.height;
 
     if (!inside) return pixelRect;
 
-    const paddingX = Math.max(pixelRect.width * 0.08, 16);
-    const paddingY = Math.max(pixelRect.height * 0.16, 10);
-    const x = Math.max(pixelRect.x, hintRect.x - paddingX);
-    const y = Math.max(pixelRect.y, hintRect.y - paddingY);
-    const xRight = Math.min(pixelRect.x + pixelRect.width, hintRect.x + hintRect.width + paddingX);
-    const yBottom = Math.min(pixelRect.y + pixelRect.height, hintRect.y + hintRect.height + paddingY);
+    const paddingX = Math.max(guardRect.width * 0.035, 16);
+    const paddingY = Math.max(guardRect.height * 0.12, 10);
+    const x = Math.max(guardRect.x, hintRect.x - paddingX);
+    const y = Math.max(guardRect.y, hintRect.y - paddingY);
+    const xRight = Math.min(guardRect.x + guardRect.width, hintRect.x + hintRect.width + paddingX);
+    const yBottom = Math.min(guardRect.y + guardRect.height, hintRect.y + hintRect.height + paddingY);
 
     return {
         height: Math.max(12, yBottom - y),
         width: Math.max(18, xRight - x),
         x,
         y,
+    };
+}
+
+function applyTextPositionHint(pixelRect, finding, guardRect) {
+    if (!guardRect || guardRect.width <= 0 || guardRect.height <= 0) return pixelRect;
+    const text = [
+        finding?.location_label,
+        finding?.evidence,
+        finding?.recommendation,
+    ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+    if (!text) return pixelRect;
+
+    const hasRightHint = /\b(right edge|end of (?:the )?(?:system|line)|line end|right side)\b/.test(text);
+    const hasLeftHint = /\b(left edge|start of (?:the )?(?:system|line)|line start|left side)\b/.test(text);
+    if (!hasRightHint && !hasLeftHint) return pixelRect;
+
+    const width = Math.max(Math.min(pixelRect.width, guardRect.width * 0.2), 22);
+    return {
+        height: pixelRect.height,
+        width,
+        x: hasRightHint ? guardRect.x + guardRect.width - width : guardRect.x,
+        y: pixelRect.y,
     };
 }
 
