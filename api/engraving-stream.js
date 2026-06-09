@@ -20,7 +20,7 @@ const REVIEW_PROMPT_VERSION = "2026-06-07";
 const DEFAULT_OPUS_MODEL = "claude-opus-4-8";
 const DEFAULT_HAIKU_MODEL = "claude-haiku-4-5";
 const DEFAULT_MAX_PAGES = 12;
-const DEFAULT_PAGES_PER_CALL = 3;
+const DEFAULT_PAGES_PER_CALL = 1;
 const DEFAULT_RENDER_SCALE = 2;
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
 
@@ -164,7 +164,7 @@ export default async function handler(req, res) {
     sendSse(res, "status", { message: "Inspecting engraving details with Opus." });
     const findings = [];
     for (const pageBatch of chunkItems(pages, renderOptions.pagesPerCall)) {
-      const response = await createOpusMessage({
+      const { parsed, response } = await createValidatedPageAnalysis({
         anthropic,
         captureSupabase,
         composition,
@@ -183,14 +183,10 @@ export default async function handler(req, res) {
         ],
         model: opusConfig.model,
         ownerId: userData.user.id,
-        promptName: "engraving_scoped_page_analysis_system_prompt",
-        provider: "anthropic",
-        responseKind: "engraving_page_analysis",
         reviewRunId,
         system: routingContext.prompt,
       });
 
-      const parsed = parseJsonObject(response.output);
       const batchFindings = normalizeFindings(parsed, pageBatch, {
         prefixCategories: routingContext.prefixCategories,
         selectedRuleIds: routingContext.selectedRuleIds,
@@ -202,6 +198,11 @@ export default async function handler(req, res) {
         ownerId: userData.user.id,
         reviewResponseId: response.responseId,
         reviewRunId,
+      });
+      emitPageFindings(res, {
+        findings: batchFindings,
+        modelNotes: parsed.model_notes,
+        pageBatch,
       });
     }
 
@@ -797,6 +798,8 @@ function buildPageAnalysisMessages({
             "",
             "Inspect these score pages for engraving issues only.",
             "Return JSON only using the requested schema.",
+            "Localize every finding with system_number and measure_number when visible. Use null only when the page cannot support that field.",
+            "bbox_hint is optional normalized [x,y,w,h] guidance only; approximate is acceptable.",
             "",
             `Prompt routing: ${JSON.stringify({
               doc_type: routingMetadata.doc_type,
@@ -834,6 +837,90 @@ function buildCachedSystem(system) {
       type: "text",
     },
   ];
+}
+
+async function createValidatedPageAnalysis({
+  anthropic,
+  captureSupabase,
+  composition,
+  inputSummary,
+  messages,
+  model,
+  ownerId,
+  reviewRunId,
+  system,
+}) {
+  const common = {
+    anthropic,
+    captureSupabase,
+    composition,
+    model,
+    ownerId,
+    promptName: "engraving_scoped_page_analysis_system_prompt",
+    provider: "anthropic",
+    responseKind: "engraving_page_analysis",
+    reviewRunId,
+    system,
+  };
+  const firstResponse = await createOpusMessage({
+    ...common,
+    inputSummary,
+    messages,
+  });
+  const firstParsed = parseJsonObject(firstResponse.output);
+  const firstValidation = validatePageAnalysisOutput(firstParsed);
+
+  if (firstValidation.valid) {
+    return { parsed: firstParsed, response: firstResponse };
+  }
+
+  const retryMessages = [
+    ...messages,
+    {
+      role: "assistant",
+      content: firstResponse.output || "{}",
+    },
+    {
+      role: "user",
+      content: [
+        "Your previous response did not match the required JSON contract.",
+        `Validation error: ${firstValidation.message}`,
+        "Return a corrected JSON object only. Do not add prose or markdown fences.",
+      ].join("\n"),
+    },
+  ];
+  const retryResponse = await createOpusMessage({
+    ...common,
+    inputSummary: {
+      ...inputSummary,
+      retry_reason: firstValidation.message,
+      retry_source_response_id: firstResponse.responseId,
+    },
+    messages: retryMessages,
+  });
+  const retryParsed = parseJsonObject(retryResponse.output);
+  const retryValidation = validatePageAnalysisOutput(retryParsed);
+
+  if (!retryValidation.valid) {
+    console.warn("[engraving] Falling back after invalid page-analysis JSON.", {
+      first: firstValidation.message,
+      retry: retryValidation.message,
+    });
+    return {
+      parsed: {
+        findings: [],
+        model_notes: [
+          "Engraving analysis returned invalid structured JSON.",
+          retryResponse.output,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+      response: retryResponse,
+    };
+  }
+
+  return { parsed: retryParsed, response: retryResponse };
 }
 
 async function createOpusMessage({
@@ -1012,6 +1099,46 @@ function parseJsonObject(text) {
   }
 }
 
+function validatePageAnalysisOutput(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { message: "Response must be a JSON object.", valid: false };
+  }
+
+  if (!Array.isArray(parsed.findings)) {
+    return { message: "Response must contain a findings array.", valid: false };
+  }
+
+  if (parsed.findings.length > 12) {
+    return { message: "Response must contain no more than 12 findings.", valid: false };
+  }
+
+  for (const [index, finding] of parsed.findings.entries()) {
+    if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
+      return { message: `Finding ${index + 1} must be an object.`, valid: false };
+    }
+    if (!cleanText(finding.source_page_id)) {
+      return { message: `Finding ${index + 1} is missing source_page_id.`, valid: false };
+    }
+    if (!cleanText(finding.rule_id)) {
+      return { message: `Finding ${index + 1} is missing rule_id.`, valid: false };
+    }
+    if (!["low", "medium", "high"].includes(String(finding.severity ?? "").toLowerCase())) {
+      return {
+        message: `Finding ${index + 1} severity must be low, medium, or high.`,
+        valid: false,
+      };
+    }
+    if (!cleanText(finding.evidence) && !cleanText(finding.recommendation)) {
+      return {
+        message: `Finding ${index + 1} needs evidence or recommendation text.`,
+        valid: false,
+      };
+    }
+  }
+
+  return { message: "", valid: true };
+}
+
 function normalizeFindings(
   parsed,
   pageBatch,
@@ -1039,6 +1166,14 @@ function normalizeFindings(
       );
       const page = pagesById.get(sourcePageId) ?? fallbackPage ?? pageBatch[0];
       const severity = normalizeSeverity(finding.severity);
+      const systemNumber = normalizePositiveInt(
+        finding.system_number ?? finding.system,
+      );
+      const measureNumber = normalizePositiveInt(
+        finding.measure_number ?? finding.measure,
+      );
+      const staffLabel = nullableText(finding.staff_label ?? finding.staff);
+      const bboxHint = normalizeBboxHint(finding.bbox_hint ?? finding.bboxHint);
 
       return {
         asset_filename: page.assetFilename,
@@ -1052,10 +1187,19 @@ function normalizeFindings(
         location_label:
           cleanText(finding.location_label) ||
           cleanText(finding.location) ||
-          `Page ${page.pageNumber}`,
+          buildLocationLabel({
+            measureNumber,
+            pageNumber: page.pageNumber,
+            staffLabel,
+            systemNumber,
+          }),
         metadata_json: {
+          bbox_hint: bboxHint,
+          measure_number: measureNumber,
           rule_id: ruleId,
           source_page_id: page.sourcePageId,
+          staff_label: staffLabel,
+          system_number: systemNumber,
         },
         page_number: page.pageNumber,
         recommendation: cleanText(finding.recommendation),
@@ -1065,6 +1209,68 @@ function normalizeFindings(
     .filter((finding) => finding && (finding.evidence || finding.recommendation));
 }
 
+function emitPageFindings(res, { findings, modelNotes, pageBatch }) {
+  const findingsBySourcePageId = groupFindingsBySourcePageId(findings);
+  for (const page of pageBatch) {
+    const pageFindings = findingsBySourcePageId.get(page.sourcePageId) ?? [];
+    sendSse(res, "findings", {
+      analysis_height: page.height,
+      analysis_width: page.width,
+      asset_filename: page.assetFilename,
+      findings: pageFindings.map(toClientFinding),
+      model_notes: modelNotesForPage(modelNotes, page),
+      page: page.pageNumber,
+      source_page_id: page.sourcePageId,
+    });
+  }
+}
+
+function groupFindingsBySourcePageId(findings) {
+  const grouped = new Map();
+  for (const finding of findings) {
+    const sourcePageId = finding.metadata_json?.source_page_id ?? "";
+    if (!grouped.has(sourcePageId)) {
+      grouped.set(sourcePageId, []);
+    }
+    grouped.get(sourcePageId).push(finding);
+  }
+  return grouped;
+}
+
+function toClientFinding(finding, index) {
+  return {
+    asset_filename: finding.asset_filename,
+    bbox_hint: finding.metadata_json?.bbox_hint ?? null,
+    category: finding.category,
+    confidence: finding.confidence,
+    evidence: finding.evidence,
+    id: [
+      finding.metadata_json?.source_page_id ?? `page-${finding.page_number ?? "unknown"}`,
+      finding.metadata_json?.rule_id ?? "finding",
+      index + 1,
+    ].join(":"),
+    location_label: finding.location_label,
+    measure_number: finding.metadata_json?.measure_number ?? null,
+    page_number: finding.page_number,
+    recommendation: finding.recommendation,
+    rule_id: finding.metadata_json?.rule_id ?? "",
+    severity: finding.severity,
+    source_page_id: finding.metadata_json?.source_page_id ?? "",
+    staff_label: finding.metadata_json?.staff_label ?? null,
+    system_number: finding.metadata_json?.system_number ?? null,
+  };
+}
+
+function modelNotesForPage(modelNotes, page) {
+  if (!modelNotes) return "";
+  if (typeof modelNotes === "string") return modelNotes;
+  if (Array.isArray(modelNotes)) return modelNotes.join("\n");
+  if (typeof modelNotes === "object") {
+    return cleanText(modelNotes[page.sourcePageId] ?? modelNotes[page.pageNumber]);
+  }
+  return "";
+}
+
 function normalizeSeverity(value) {
   const severity = String(value ?? "").toLowerCase();
   return ["low", "medium", "high"].includes(severity) ? severity : "medium";
@@ -1072,6 +1278,54 @@ function normalizeSeverity(value) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function nullableText(value) {
+  const text = cleanText(value);
+  return text || null;
+}
+
+function normalizePositiveInt(value) {
+  const number = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function normalizeBboxHint(value) {
+  if (Array.isArray(value) && value.length === 4) {
+    const numbers = value.map((item) => Number(item));
+    return numbers.every((number) => Number.isFinite(number))
+      ? numbers.map((number) => clamp01(number))
+      : null;
+  }
+
+  if (value && typeof value === "object") {
+    const x = Number(value.x);
+    const y = Number(value.y);
+    const width = Number(value.width ?? value.w);
+    const height = Number(value.height ?? value.h);
+    if ([x, y, width, height].every((number) => Number.isFinite(number))) {
+      return [x, y, width, height].map((number) => clamp01(number));
+    }
+  }
+
+  return null;
+}
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function buildLocationLabel({
+  measureNumber,
+  pageNumber,
+  staffLabel,
+  systemNumber,
+}) {
+  const parts = [`Page ${pageNumber}`];
+  if (systemNumber) parts.push(`system ${systemNumber}`);
+  if (measureNumber) parts.push(`measure ${measureNumber}`);
+  if (staffLabel) parts.push(staffLabel);
+  return parts.join(", ");
 }
 
 function buildPolishInput({ composition, sourceText }) {

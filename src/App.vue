@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import AnnotatedPdfViewer from "./components/AnnotatedPdfViewer.vue";
 import ReviewMarkdown from "./components/ReviewMarkdown.vue";
 import {
     isSupabaseConfigured,
@@ -35,6 +36,7 @@ const reviewError = ref("");
 const reviewId = ref("");
 const reviewPolished = ref(false);
 const activeReviewAction = ref("analyze");
+const pageFindings = ref([]);
 const routePath = ref(normalizePath(window.location.pathname));
 
 let authSubscription = null;
@@ -162,20 +164,17 @@ const pdfPreviewAssets = computed(
             (asset) => asset.assetType === "pdf" && asset.previewUrl,
         ) ?? [],
 );
-const reviewPanelTitle = computed(() => {
-    if (reviewPolished.value && reviewStatus.value === "complete") {
-        return "Polished engraving review";
-    }
-    if (reviewStatus.value === "complete") return "Engraving review complete";
-    if (reviewStatus.value === "error") return "Engraving review interrupted";
-    if (reviewStatus.value === "not_configured") return "Engraving review not configured";
-    if (activeReviewAction.value === "polish") return "Polishing engraving review";
-    if (["connecting", "waiting", "streaming"].includes(reviewStatus.value)) {
-        return "Live engraving review";
-    }
-
-    return "Engraving review";
+const debugGeometry = computed(() => {
+    routePath.value;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("debugGeometry") === "1";
 });
+const findingCount = computed(() =>
+    pageFindings.value.reduce(
+        (total, page) => total + (page.findings?.length ?? 0),
+        0,
+    ),
+);
 const reviewStatusLabel = computed(() => {
     const labels = {
         complete: "complete",
@@ -188,21 +187,6 @@ const reviewStatusLabel = computed(() => {
     };
 
     return labels[reviewStatus.value] ?? reviewStatus.value;
-});
-const reviewPlaceholder = computed(() => {
-    if (reviewStatus.value === "not_configured") {
-        return "Add VITE_REVIEW_STREAM_URL or deploy the engraving stream endpoint.";
-    }
-
-    if (reviewStatus.value === "connecting" || reviewStatus.value === "waiting") {
-        return "Waiting for engraving review output.";
-    }
-
-    if (reviewStatus.value === "error") {
-        return "No review text was received.";
-    }
-
-    return "Engraving review will appear here after submission.";
 });
 const canReconnectReview = computed(
     () => reviewStatus.value === "error" && Boolean(lastUpload.value?.compositionId),
@@ -663,6 +647,7 @@ async function uploadFiles() {
         }
 
         item.status = "uploaded";
+        item.assetId = assetId;
         uploaded.push(item);
         await logUploadEvent({
             ownerId,
@@ -684,7 +669,7 @@ async function uploadFiles() {
         compositionId,
         title,
         assets: uploaded.map((item) => ({
-            id: item.id,
+            id: item.assetId ?? item.id,
             name: item.file.name,
             assetType: item.assetType,
             previewUrl: shouldCreatePreviews ? createPdfPreviewUrl(item) : "",
@@ -759,6 +744,7 @@ function resetReviewPanel(message = "Engraving review will appear here after sub
     reviewId.value = "";
     reviewPolished.value = false;
     activeReviewAction.value = "analyze";
+    pageFindings.value = [];
 }
 
 function abortReviewStream() {
@@ -797,6 +783,7 @@ async function startReviewStream(compositionId, options = {}) {
     if (action === "analyze") {
         reviewId.value = "";
         reviewPolished.value = false;
+        pageFindings.value = [];
     }
     activeReviewAction.value = action;
 
@@ -974,6 +961,15 @@ function handleReviewSseEvent({ event, data }) {
         return;
     }
 
+    if (event === "findings") {
+        addPageFindings(payload);
+        reviewStatus.value = "streaming";
+        reviewMessage.value = payload.findings?.length
+            ? `Placed ${payload.findings.length} finding${payload.findings.length === 1 ? "" : "s"} on page ${payload.page ?? payload.page_number}.`
+            : `Page ${payload.page ?? payload.page_number} checked.`;
+        return;
+    }
+
     if (event === "done") {
         reviewStatus.value = "complete";
         if (payload.polished) {
@@ -991,6 +987,41 @@ function handleReviewSseEvent({ event, data }) {
         reviewMessage.value = "Engraving review stream interrupted.";
         reviewError.value = payload.message ?? "Unable to stream engraving review.";
     }
+}
+
+function addPageFindings(payload) {
+    const sourcePageId = payload.source_page_id ?? "";
+    const pageNumber = Number(payload.page ?? payload.page_number ?? 0) || null;
+    const findings = Array.isArray(payload.findings) ? payload.findings : [];
+    const normalizedFindings = findings.map((finding, index) => ({
+        ...finding,
+        asset_filename: payload.asset_filename ?? finding.asset_filename ?? "",
+        id:
+            finding.id ??
+            [
+                sourcePageId || `page-${pageNumber ?? "unknown"}`,
+                finding.rule_id || "finding",
+                index + 1,
+            ].join(":"),
+        page_number: Number(finding.page_number ?? pageNumber) || pageNumber,
+        source_page_id: finding.source_page_id ?? sourcePageId,
+    }));
+
+    pageFindings.value = [
+        ...pageFindings.value.filter((page) => {
+            if (sourcePageId) return page.source_page_id !== sourcePageId;
+            return page.page !== pageNumber;
+        }),
+        {
+            analysis_height: payload.analysis_height ?? null,
+            analysis_width: payload.analysis_width ?? null,
+            asset_filename: payload.asset_filename ?? "",
+            findings: normalizedFindings,
+            model_notes: payload.model_notes ?? "",
+            page: pageNumber,
+            source_page_id: sourcePageId,
+        },
+    ].sort((a, b) => (a.page ?? 0) - (b.page ?? 0));
 }
 
 function inferCompositionTitle() {
@@ -1221,26 +1252,76 @@ function formatBytes(bytes) {
                 </div>
 
                 <div v-if="hasSubmittedUpload" class="submitted-workspace">
+                    <div class="review-status-bar">
+                        <span
+                            class="status-pill"
+                            :class="{
+                                'status-pill--success':
+                                    reviewStatus === 'complete',
+                                'status-pill--error': reviewStatus === 'error',
+                            }"
+                        >
+                            {{ reviewStatusLabel }}
+                        </span>
+                        <p>{{ reviewMessage }}</p>
+                        <strong v-if="findingCount">
+                            {{ findingCount }} finding{{
+                                findingCount === 1 ? "" : "s"
+                            }}
+                        </strong>
+                    </div>
+
                     <div
                         v-if="pdfPreviewAssets.length"
                         class="pdf-preview-list"
                     >
-                        <article
-                            v-for="asset in pdfPreviewAssets"
-                            :key="asset.id"
-                            class="pdf-preview"
+                        <AnnotatedPdfViewer
+                            :assets="pdfPreviewAssets"
+                            :debug-geometry="debugGeometry"
+                            :findings="pageFindings"
+                            :review-status="reviewStatus"
+                        />
+                    </div>
+
+                    <div
+                        v-if="reviewText && !findingCount"
+                        class="fallback-review"
+                    >
+                        <div class="section-heading">
+                            <div>
+                                <p class="eyebrow">Fallback review</p>
+                                <h3>Text output</h3>
+                            </div>
+                        </div>
+                        <ReviewMarkdown
+                            class="review-output"
+                            :content="reviewText"
+                        />
+                    </div>
+
+                    <p v-if="reviewId" class="review-meta">
+                        Review ID: {{ reviewId }}
+                    </p>
+                    <p v-if="reviewError" class="error-text">
+                        {{ reviewError }}
+                    </p>
+                    <div class="review-actions">
+                        <button
+                            v-if="canPolishReview"
+                            class="button"
+                            type="button"
+                            @click="polishReviewOutput"
                         >
-                            <object
-                                class="pdf-preview__frame"
-                                :data="asset.previewUrl"
-                                type="application/pdf"
-                            >
-                                <p class="pdf-preview__fallback">
-                                    PDF preview is unavailable in this browser.
-                                    Open the PDF from the link above.
-                                </p>
-                            </object>
-                        </article>
+                            Polish output
+                        </button>
+                        <button
+                            v-if="canReconnectReview"
+                            class="button"
+                            type="button"
+                            @click="reconnectReviewStream"
+                        >
+                            Reconnect
+                        </button>
                     </div>
                 </div>
 
@@ -1413,59 +1494,6 @@ function formatBytes(bytes) {
                     {{ uploadMessage }}
                 </p>
             </section>
-
-            <aside class="review-panel" aria-labelledby="review-title">
-                <div class="section-heading">
-                    <div>
-                        <p class="eyebrow">Review</p>
-                        <h2 id="review-title">{{ reviewPanelTitle }}</h2>
-                    </div>
-                    <span
-                        class="status-pill"
-                        :class="{
-                            'status-pill--success':
-                                reviewStatus === 'complete',
-                            'status-pill--error': reviewStatus === 'error',
-                        }"
-                    >
-                        {{ reviewStatusLabel }}
-                    </span>
-                </div>
-
-                <div class="review-panel__body">
-                    <p class="review-message">{{ reviewMessage }}</p>
-                    <ReviewMarkdown
-                        v-if="reviewText"
-                        class="review-output"
-                        :content="reviewText"
-                    />
-                    <div v-else class="review-placeholder">
-                        {{ reviewPlaceholder }}
-                    </div>
-                    <p v-if="reviewId" class="review-meta">
-                        Review ID: {{ reviewId }}
-                    </p>
-                    <p v-if="reviewError" class="error-text">
-                        {{ reviewError }}
-                    </p>
-                    <button
-                        v-if="canPolishReview"
-                        class="button"
-                        type="button"
-                        @click="polishReviewOutput"
-                    >
-                        Polish output
-                    </button>
-                    <button
-                        v-if="canReconnectReview"
-                        class="button"
-                        type="button"
-                        @click="reconnectReviewStream"
-                    >
-                        Reconnect
-                    </button>
-                </div>
-            </aside>
         </div>
     </main>
 </template>

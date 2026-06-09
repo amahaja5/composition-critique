@@ -9,13 +9,18 @@ Expected output:
     {
       "source_page_id": "pg_b410",
       "page_number": 30,
+      "system_number": 1,
+      "measure_number": 1,
+      "staff_label": "staff 1",
       "location_label": "staff 1, above measures 1-2",
       "rule_id": "OCT-05",
       "severity": "high",
       "evidence": "The dashed 8va extension line passes through a slur and a dynamic marking.",
       "recommendation": "Raise the extension line outside all other notation.",
-      "confidence": 0.88
+      "confidence": 0.88,
+      "bbox_hint": null
     }
-  ]
+  ],
+  "model_notes": ""
 }
 ```

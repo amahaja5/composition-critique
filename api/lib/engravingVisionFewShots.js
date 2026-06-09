@@ -121,8 +121,11 @@ function normalizeVisionFewShotExample(example, index) {
 }
 
 async function loadVisionFewShotGold(gold, examplesRootUrl) {
-  if (gold && typeof gold === "object") return gold;
-  return JSON.parse(await readFile(new URL(gold, examplesRootUrl), "utf8"));
+  const parsed =
+    gold && typeof gold === "object"
+      ? gold
+      : JSON.parse(await readFile(new URL(gold, examplesRootUrl), "utf8"));
+  return normalizeGoldOutput(parsed);
 }
 
 function extractGoldRuleIds(gold) {
@@ -157,6 +160,49 @@ function inferImageMediaType(image) {
     throw new Error(`Few-shot image ${image} has an unsupported image type.`);
   }
   return mediaType;
+}
+
+function normalizeGoldOutput(gold) {
+  const findings = Array.isArray(gold?.findings) ? gold.findings : [];
+  return {
+    findings: findings.map((finding) => ({
+      source_page_id: cleanText(finding.source_page_id),
+      page_number: normalizeNullableInt(finding.page_number),
+      system_number: normalizeNullableInt(finding.system_number ?? finding.system),
+      measure_number: normalizeNullableInt(finding.measure_number ?? finding.measure),
+      staff_label: nullableText(finding.staff_label ?? finding.staff),
+      location_label: nullableText(finding.location_label),
+      rule_id: cleanText(finding.rule_id),
+      severity: cleanText(finding.severity) || "medium",
+      evidence: cleanText(finding.evidence),
+      recommendation: cleanText(finding.recommendation),
+      confidence:
+        typeof finding.confidence === "number" && Number.isFinite(finding.confidence)
+          ? finding.confidence
+          : 0.9,
+      bbox_hint: normalizeNullableBbox(finding.bbox_hint ?? finding.bboxHint),
+    })),
+    model_notes: cleanText(gold?.model_notes),
+  };
+}
+
+function normalizeNullableInt(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number.parseInt(value, 10);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function normalizeNullableBbox(value) {
+  if (Array.isArray(value) && value.length === 4) {
+    const numbers = value.map((item) => Number(item));
+    return numbers.every((number) => Number.isFinite(number)) ? numbers : null;
+  }
+  return null;
+}
+
+function nullableText(value) {
+  const text = cleanText(value);
+  return text || null;
 }
 
 function cleanText(value) {
