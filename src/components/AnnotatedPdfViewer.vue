@@ -311,6 +311,29 @@ function markerStyle(marker) {
     return rectToPercent(marker.rect);
 }
 
+function popoverStyle(marker) {
+    const rect = marker.rect;
+    const isLeftSide = rect.x < 0.5;
+    const isUpperPage = rect.y < 0.68;
+    const horizontalGap = 1.4;
+    const verticalGap = 1.4;
+    const style = {};
+
+    if (isLeftSide) {
+        style.left = `${Math.min((rect.x + rect.width) * 100 + horizontalGap, 64)}%`;
+    } else {
+        style.right = `${Math.min((1 - rect.x) * 100 + horizontalGap, 64)}%`;
+    }
+
+    if (isUpperPage) {
+        style.top = `${Math.min((rect.y + rect.height) * 100 + verticalGap, 76)}%`;
+    } else {
+        style.bottom = `${Math.min((1 - rect.y) * 100 + verticalGap, 76)}%`;
+    }
+
+    return style;
+}
+
 function rectToPercent(rect) {
     return {
         height: `${Math.max(rect.height * 100, 2.4)}%`,
@@ -435,6 +458,7 @@ function cleanupPdfDocuments() {
                     <article
                         v-if="activeFindingForPage(page)"
                         class="finding-popover"
+                        :style="popoverStyle(activeFindingForPage(page))"
                     >
                         <div class="finding-popover__header">
                             <strong>{{

@@ -729,20 +729,21 @@ select:disabled {
 }
 
 .finding-marker {
+  --marker-color: #a85a24;
   position: absolute;
   min-width: 34px;
   min-height: 28px;
-  border: 2px solid currentColor;
+  border: 2px solid var(--marker-color);
   border-radius: 6px;
   padding: 0;
-  background: color-mix(in srgb, currentColor 13%, transparent);
-  color: #a85a24;
+  background: color-mix(in srgb, var(--marker-color) 13%, transparent);
+  color: var(--marker-color);
   cursor: pointer;
 }
 
 .finding-marker:hover,
 .finding-marker--active {
-  background: color-mix(in srgb, currentColor 22%, transparent);
+  background: color-mix(in srgb, var(--marker-color) 22%, transparent);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.86);
 }
 
@@ -756,29 +757,27 @@ select:disabled {
   place-items: center;
   border: 2px solid #ffffff;
   border-radius: 999px;
-  background: currentColor;
+  background: var(--marker-color);
   color: #ffffff;
   font-size: 0.78rem;
   font-weight: 900;
 }
 
 .finding-marker--error {
-  color: #bf3131;
+  --marker-color: #bf3131;
 }
 
 .finding-marker--warning {
-  color: #a85a24;
+  --marker-color: #a85a24;
 }
 
 .finding-marker--suggestion {
-  color: #2e6ea3;
+  --marker-color: #2e6ea3;
 }
 
 .finding-popover {
   position: absolute;
   z-index: 4;
-  right: 18px;
-  bottom: 18px;
   width: min(420px, calc(100% - 36px));
   border: 1px solid var(--line);
   border-radius: 8px;
