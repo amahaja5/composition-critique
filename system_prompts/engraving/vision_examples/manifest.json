@@ -1,0 +1,32 @@
+{
+  "examples": [
+    {
+      "image": "ex1_correct_6_8.png",
+      "gold": "ex1_correct_6_8.json"
+    },
+    {
+      "image": "ex2_correct_9_8.png",
+      "gold": "ex2_correct_9_8.json"
+    },
+    {
+      "image": "ex3_correct_12_8.png",
+      "gold": "ex3_correct_12_8.json"
+    },
+    {
+      "image": "ex4_incorrect_6_8.png",
+      "gold": "ex4_incorrect_6_8.json"
+    },
+    {
+      "image": "ex5_incorrect_12_8.png",
+      "gold": "ex5_incorrect_12_8.json"
+    },
+    {
+      "image": "ex6_correct_collision.png",
+      "gold": "ex6_correct_collision.json"
+    },
+    {
+      "image": "ex7_incorrect_collision.png",
+      "gold": "ex7_incorrect_collision.json"
+    }
+  ]
+}

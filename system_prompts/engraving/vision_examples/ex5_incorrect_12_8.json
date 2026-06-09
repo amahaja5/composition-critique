@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "confidence": 0.93,
+      "evidence": "Beam groups span across dotted-quarter beat boundaries, obscuring the four-beat 12/8 pulse.",
+      "location_label": "single visible 12/8 measure",
+      "page_number": null,
+      "recommendation": "Regroup into four beam groups, one per dotted-quarter beat.",
+      "rule_id": "BEAM-49",
+      "severity": "medium",
+      "source_page_id": "fewshot_ex5_incorrect_12_8"
+    }
+  ]
+}

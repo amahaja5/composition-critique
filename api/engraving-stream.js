@@ -11,6 +11,10 @@ import {
   loadDetectionPrompt,
   loadEngravingManifest,
 } from "./lib/engravingPromptAssembler.js";
+import {
+  buildAnthropicBase64ImageBlock,
+  loadVisionFewShotExamples,
+} from "./lib/engravingVisionFewShots.js";
 
 const REVIEW_PROMPT_VERSION = "2026-06-07";
 const DEFAULT_OPUS_MODEL = "claude-opus-4-8";
@@ -153,6 +157,9 @@ export default async function handler(req, res) {
       asset_types: pdfAssets.map((asset) => asset.asset_type),
       prompt_routing: routingContext.metadata,
     });
+    const visionFewShots = await loadVisionFewShotExamples({
+      selectedRuleIds: routingContext.selectedRuleIds,
+    });
 
     sendSse(res, "status", { message: "Inspecting engraving details with Opus." });
     const findings = [];
@@ -164,12 +171,16 @@ export default async function handler(req, res) {
         inputSummary: {
           ...summarizePageBatch(pageBatch),
           prompt_routing: routingContext.metadata,
+          vision_few_shots: visionFewShots.metadata,
         },
-        messages: buildPageAnalysisMessages({
-          composition,
-          pageBatch,
-          routingMetadata: routingContext.metadata,
-        }),
+        messages: [
+          ...visionFewShots.messages,
+          ...buildPageAnalysisMessages({
+            composition,
+            pageBatch,
+            routingMetadata: routingContext.metadata,
+          }),
+        ],
         model: opusConfig.model,
         ownerId: userData.user.id,
         promptName: "engraving_scoped_page_analysis_system_prompt",
@@ -809,14 +820,10 @@ function buildPageAnalysisMessages({
 }
 
 function buildAnthropicImageBlock(page) {
-  return {
-    source: {
-      data: page.dataUrl.replace(/^data:image\/png;base64,/, ""),
-      media_type: "image/png",
-      type: "base64",
-    },
-    type: "image",
-  };
+  return buildAnthropicBase64ImageBlock({
+    data: page.dataUrl.replace(/^data:image\/png;base64,/, ""),
+    mediaType: "image/png",
+  });
 }
 
 function buildCachedSystem(system) {
@@ -850,9 +857,12 @@ async function createOpusMessage({
   let usageJson = {};
   const responseId = randomUUID();
   const promptCache = {
-    enabled: true,
-    scope: "system",
-    type: "ephemeral",
+    system: {
+      enabled: true,
+      scope: "system",
+      type: "ephemeral",
+    },
+    vision_few_shots: inputSummary?.vision_few_shots?.cache ?? null,
   };
 
   try {

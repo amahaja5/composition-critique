@@ -42,6 +42,11 @@ Opus engraving and routing calls use Anthropic prompt caching on the stable
 system prompt, so repeated page batches can reuse the assembled engraving
 rulebook while each request still sends fresh rendered page images.
 
+Vision few-shot examples for Opus page analysis are loaded from the prompt repo
+manifest at `system_prompts/engraving/vision_examples/manifest.json`. To add a
+new example, add the image and gold JSON file there, then add one manifest entry
+with `image` and `gold`; no API code change is needed.
+
 When `SUPABASE_SERVICE_ROLE_KEY` is configured, Opus findings, optional Haiku
 polish responses, and normalized engraving findings are stored under a shared
 `review_runs` row for DPO/evaluation preparation. Prompt files are loaded from

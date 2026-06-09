@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "confidence": 0.93,
+      "evidence": "The beam grouping crosses the midpoint dotted-quarter boundary, obscuring the two-beat 6/8 pulse.",
+      "location_label": "single visible 6/8 measure",
+      "page_number": null,
+      "recommendation": "Break the beam at the bar midpoint so each dotted-quarter beat is its own group.",
+      "rule_id": "BEAM-49",
+      "severity": "medium",
+      "source_page_id": "fewshot_ex4_incorrect_6_8"
+    }
+  ]
+}

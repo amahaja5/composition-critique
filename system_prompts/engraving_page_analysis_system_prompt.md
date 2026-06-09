@@ -195,6 +195,7 @@ Chapter scope: Core visible mechanics of standard notation: staves, clefs, noteh
 - BEAM-46: Do not beam across a barline unless the notation intentionally shows cross-bar grouping and remains rhythmically clear.
 - BEAM-47: Beaming must clarify the meter; beam groupings that contradict visible meter should be flagged.
 - BEAM-48: Do not use unbeamed flags where the normal metric grouping calls for beams and beaming would clarify rhythm.
+- BEAM-49: In 6/8, 9/8, and 12/8, eighth and sixteenth notes should be beamed by dotted-quarter beats: two groups in 6/8, three in 9/8, and four in 12/8.
 </rules_beaming>
 
 <rules_ledger_lines>

@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "confidence": 0.91,
+      "evidence": "The hairpin collides with the mf dynamic and nearby notes beneath the beamed chord group.",
+      "location_label": "cropped system, below upper staff",
+      "page_number": null,
+      "recommendation": "Lower or reposition the hairpin and dynamic so they clear the notation.",
+      "rule_id": "DYN-05",
+      "severity": "medium",
+      "source_page_id": "fewshot_ex7_incorrect_collision"
+    }
+  ]
+}
