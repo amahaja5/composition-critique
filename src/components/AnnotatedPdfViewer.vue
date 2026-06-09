@@ -36,6 +36,7 @@ const pdfDocuments = [];
 let resizeObserver = null;
 let renderSerial = 0;
 let resizeTimer = null;
+let initialRenderInProgress = false;
 
 const flattenedFindings = computed(() =>
     props.findings.flatMap((pageRecord) =>
@@ -66,6 +67,7 @@ const unlocalizedFindings = computed(() =>
 
 onMounted(() => {
     resizeObserver = new ResizeObserver(() => {
+        if (initialRenderInProgress || !pages.value.length) return;
         clearTimeout(resizeTimer);
         resizeTimer = window.setTimeout(() => renderAllPages(), 120);
     });
@@ -126,39 +128,70 @@ async function loadAssets() {
     loadingMessage.value = "Loading score preview.";
     const nextPages = [];
 
-    for (const asset of props.assets) {
-        if (!asset.previewUrl) continue;
-        const loadingTask = pdfjs.getDocument({
-            disableFontFace: false,
-            url: asset.previewUrl,
-            useSystemFonts: true,
-        });
-        const document = await loadingTask.promise;
-        pdfDocuments.push(document);
+    try {
+        for (const asset of props.assets) {
+            if (!asset.file && !asset.previewUrl) continue;
+            const loadingTask = pdfjs.getDocument(await buildPdfLoadSource(asset));
+            const document = await loadingTask.promise;
+            pdfDocuments.push(document);
 
-        for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-            const pdfPage = await document.getPage(pageNumber);
-            const viewport = pdfPage.getViewport({ scale: 1 });
-            nextPages.push({
-                assetId: asset.id,
-                assetName: asset.name,
-                cssHeight: viewport.height,
-                cssWidth: viewport.width,
-                geometry: null,
-                key: `${asset.id}:${pageNumber}`,
-                pageNumber,
-                pdfPage,
-                sourcePageId: `${asset.id}:${pageNumber}`,
-            });
+            for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+                const pdfPage = await document.getPage(pageNumber);
+                const viewport = pdfPage.getViewport({ scale: 1 });
+                nextPages.push({
+                    assetId: asset.id,
+                    assetName: asset.name,
+                    cssHeight: viewport.height,
+                    cssWidth: viewport.width,
+                    geometry: null,
+                    key: `${asset.id}:${pageNumber}`,
+                    pageNumber,
+                    pdfPage,
+                    renderError: "",
+                    renderState: "pending",
+                    sourcePageId: `${asset.id}:${pageNumber}`,
+                });
+            }
         }
+    } catch (error) {
+        loadingMessage.value =
+            error instanceof Error
+                ? `Unable to load score preview: ${error.message}`
+                : "Unable to load score preview.";
+        return;
     }
 
     if (serial !== renderSerial) return;
     pages.value = nextPages;
     loadingMessage.value = nextPages.length ? "Rendering score pages." : "";
     await nextTick();
-    await renderAllPages(serial);
+    initialRenderInProgress = true;
+    try {
+        await renderAllPages(serial);
+    } finally {
+        initialRenderInProgress = false;
+    }
     loadingMessage.value = "";
+}
+
+async function buildPdfLoadSource(asset) {
+    const sharedOptions = {
+        disableFontFace: false,
+        isEvalSupported: false,
+        useSystemFonts: true,
+    };
+
+    if (asset.file) {
+        return {
+            ...sharedOptions,
+            data: new Uint8Array(await asset.file.arrayBuffer()),
+        };
+    }
+
+    return {
+        ...sharedOptions,
+        url: asset.previewUrl,
+    };
 }
 
 async function renderAllPages(expectedSerial = null) {
@@ -184,19 +217,38 @@ async function renderPage(page) {
     const viewport = page.pdfPage.getViewport({ scale: cssScale * dpr });
     const context = canvas.getContext("2d", { willReadFrequently: true });
 
+    page.renderState = "rendering";
+    page.renderError = "";
     canvas.width = Math.ceil(viewport.width);
     canvas.height = Math.ceil(viewport.height);
     page.cssWidth = Math.ceil(viewport.width / dpr);
     page.cssHeight = Math.ceil(viewport.height / dpr);
     canvas.style.width = `${page.cssWidth}px`;
     canvas.style.height = `${page.cssHeight}px`;
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
 
-    await page.pdfPage.render({
-        canvasContext: context,
-        viewport,
-    }).promise;
+    try {
+        await page.pdfPage.render({
+            background: "white",
+            canvas,
+            canvasContext: context,
+            viewport,
+        }).promise;
 
-    page.geometry = detectScoreGeometry(canvas);
+        page.geometry = detectScoreGeometry(canvas);
+        page.renderState = "ready";
+    } catch (error) {
+        page.geometry = null;
+        page.renderState = "error";
+        page.renderError =
+            error instanceof Error ? error.message : "Unable to render this page.";
+        console.warn("[pdf-preview] Unable to render page.", {
+            error,
+            page: page.pageNumber,
+            sourcePageId: page.sourcePageId,
+        });
+    }
 }
 
 function findingsForPage(page) {
@@ -324,7 +376,27 @@ function cleanupPdfDocuments() {
                     />
 
                     <div
-                        v-if="debugGeometry"
+                        v-if="page.renderState !== 'ready'"
+                        class="page-render-state"
+                        :class="{
+                            'page-render-state--error':
+                                page.renderState === 'error',
+                        }"
+                    >
+                        <strong>
+                            {{
+                                page.renderState === "error"
+                                    ? "Preview failed"
+                                    : "Rendering page"
+                            }}
+                        </strong>
+                        <span v-if="page.renderError">{{
+                            page.renderError
+                        }}</span>
+                    </div>
+
+                    <div
+                        v-if="debugGeometry && page.renderState === 'ready'"
                         class="geometry-debug-layer"
                         aria-hidden="true"
                     >

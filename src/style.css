@@ -679,6 +679,38 @@ select:disabled {
   background: #ffffff;
 }
 
+.page-render-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.page-render-state strong {
+  color: var(--text);
+}
+
+.page-render-state span {
+  max-width: 46ch;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.page-render-state--error {
+  background: rgba(245, 221, 221, 0.74);
+  color: var(--danger);
+}
+
+.page-render-state--error strong {
+  color: var(--danger);
+}
+
 .geometry-debug-layer {
   position: absolute;
   inset: 0;

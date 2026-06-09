@@ -672,6 +672,7 @@ async function uploadFiles() {
             id: item.assetId ?? item.id,
             name: item.file.name,
             assetType: item.assetType,
+            file: item.file,
             previewUrl: shouldCreatePreviews ? createPdfPreviewUrl(item) : "",
             size: item.file.size,
         })),
