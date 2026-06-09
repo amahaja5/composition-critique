@@ -231,7 +231,7 @@ async function renderPage(page) {
     try {
         await page.pdfPage.render({
             background: "white",
-            canvas,
+            canvas: null,
             canvasContext: context,
             viewport,
         }).promise;
