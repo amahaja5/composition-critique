@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import * as pdfjs from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { detectScoreGeometry, snapFindingToGeometry } from "../lib/scoreGeometry.js";
@@ -132,11 +132,11 @@ async function loadAssets() {
         for (const asset of props.assets) {
             if (!asset.file && !asset.previewUrl) continue;
             const loadingTask = pdfjs.getDocument(await buildPdfLoadSource(asset));
-            const document = await loadingTask.promise;
+            const document = markRaw(await loadingTask.promise);
             pdfDocuments.push(document);
 
             for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-                const pdfPage = await document.getPage(pageNumber);
+                const pdfPage = markRaw(await document.getPage(pageNumber));
                 const viewport = pdfPage.getViewport({ scale: 1 });
                 nextPages.push({
                     assetId: asset.id,
