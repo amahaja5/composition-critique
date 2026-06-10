@@ -1,10 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { createCanvas } from "@napi-rs/canvas";
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import { WorkerMessageHandler } from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 import {
   assembleEngravingPrompt,
   loadDetectionPrompt,
@@ -35,12 +32,12 @@ const DEFAULT_PAGES_PER_CALL = 1;
 const DEFAULT_RENDER_SCALE = 2;
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
 
-globalThis.pdfjsWorker ??= { WorkerMessageHandler };
-
 const polishPromptUrl = new URL(
   "../system_prompts/engraving_polish_system_prompt.md",
   import.meta.url,
 );
+let pdfRuntimePromise = null;
+let createCanvasPromise = null;
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
@@ -689,6 +686,10 @@ function toStringList(value) {
 }
 
 async function renderPdfPages({ asset, maxPages, pdfBytes, renderScale }) {
+  const [pdfjs, createCanvas] = await Promise.all([
+    loadPdfRuntime(),
+    loadCreateCanvas(),
+  ]);
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(pdfBytes),
     disableFontFace: true,
@@ -702,7 +703,7 @@ async function renderPdfPages({ asset, maxPages, pdfBytes, renderScale }) {
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale: renderScale });
-      const canvasFactory = new NodeCanvasFactory();
+      const canvasFactory = new NodeCanvasFactory(createCanvas);
       const canvasAndContext = canvasFactory.create(
         Math.ceil(viewport.width),
         Math.ceil(viewport.height),
@@ -740,9 +741,35 @@ async function renderPdfPages({ asset, maxPages, pdfBytes, renderScale }) {
   return pages;
 }
 
+async function loadPdfRuntime() {
+  if (!pdfRuntimePromise) {
+    pdfRuntimePromise = Promise.all([
+      import("pdfjs-dist/legacy/build/pdf.mjs"),
+      import("pdfjs-dist/legacy/build/pdf.worker.mjs"),
+    ]).then(([pdfjs, worker]) => {
+      globalThis.pdfjsWorker ??= {
+        WorkerMessageHandler: worker.WorkerMessageHandler,
+      };
+      return pdfjs;
+    });
+  }
+  return pdfRuntimePromise;
+}
+
+async function loadCreateCanvas() {
+  if (!createCanvasPromise) {
+    createCanvasPromise = import("@napi-rs/canvas").then((module) => module.createCanvas);
+  }
+  return createCanvasPromise;
+}
+
 class NodeCanvasFactory {
+  constructor(createCanvas) {
+    this.createCanvas = createCanvas;
+  }
+
   create(width, height) {
-    const canvas = createCanvas(width, height);
+    const canvas = this.createCanvas(width, height);
     const context = canvas.getContext("2d");
     return { canvas, context };
   }
