@@ -175,6 +175,28 @@ const findingCount = computed(() =>
         0,
     ),
 );
+const showDebugReviewJson = computed(
+    () =>
+        debugGeometry.value &&
+        hasSubmittedUpload.value &&
+        (pageFindings.value.length > 0 ||
+            reviewStatus.value !== "idle" ||
+            Boolean(reviewText.value) ||
+            Boolean(reviewError.value)),
+);
+const debugReviewJson = computed(() =>
+    JSON.stringify(
+        {
+            finding_count: findingCount.value,
+            pages: pageFindings.value,
+            review_error: reviewError.value || null,
+            review_id: reviewId.value || null,
+            review_status: reviewStatus.value,
+        },
+        null,
+        2,
+    ),
+);
 const reviewStatusLabel = computed(() => {
     const labels = {
         complete: "complete",
@@ -193,6 +215,7 @@ const canReconnectReview = computed(
 );
 const canPolishReview = computed(
     () =>
+        !debugGeometry.value &&
         reviewStatus.value === "complete" &&
         !reviewPolished.value &&
         Boolean(reviewText.value.trim()) &&
@@ -1285,7 +1308,20 @@ function formatBytes(bytes) {
                     </div>
 
                     <div
-                        v-if="reviewText && !findingCount"
+                        v-if="showDebugReviewJson"
+                        class="fallback-review"
+                    >
+                        <div class="section-heading">
+                            <div>
+                                <p class="eyebrow">Debug geometry</p>
+                                <h3>JSON output</h3>
+                            </div>
+                        </div>
+                        <pre class="debug-json-output"><code>{{ debugReviewJson }}</code></pre>
+                    </div>
+
+                    <div
+                        v-if="reviewText && !findingCount && !debugGeometry"
                         class="fallback-review"
                     >
                         <div class="section-heading">

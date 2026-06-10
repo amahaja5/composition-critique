@@ -627,6 +627,25 @@ select:disabled {
   font-size: 1rem;
 }
 
+.debug-json-output {
+  max-height: min(520px, calc(100svh - 280px));
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #17211c;
+  color: #f3f7f1;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.debug-json-output code {
+  font: inherit;
+}
+
 .annotated-viewer {
   display: grid;
   gap: 22px;
