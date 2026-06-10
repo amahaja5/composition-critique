@@ -12,6 +12,19 @@ export function detectScoreGeometry(canvas) {
     }
 
     const imageData = context.getImageData(0, 0, width, height);
+    return detectScoreGeometryFromPixels({
+        data: imageData.data,
+        height,
+        width,
+    });
+}
+
+export function detectScoreGeometryFromPixels({ data, height, width }) {
+    if (!data || width <= 0 || height <= 0) {
+        return emptyGeometry(width, height);
+    }
+
+    const imageData = { data };
     const { rowCounts } = buildInkProfiles(imageData, width, height);
     const staffLines = detectStaffLines(rowCounts, width);
     const staves = detectStaves(staffLines);

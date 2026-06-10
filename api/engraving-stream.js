@@ -7,22 +7,32 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { WorkerMessageHandler } from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 import {
   assembleEngravingPrompt,
-  deriveCategoryFromRuleId,
   loadDetectionPrompt,
   loadEngravingManifest,
 } from "./lib/engravingPromptAssembler.js";
+import {
+  buildPageAnalysisMessages,
+  createAnthropicMessage,
+  extractAnthropicText,
+  getEngravingModelConfig,
+  modelNotesForPage,
+  normalizeFindings,
+  parseJsonObject,
+  summarizeEngravingModelConfig,
+  toClientFinding,
+  toJson,
+  validatePageAnalysisOutput,
+} from "./lib/engravingPageAnalysis.js";
 import {
   buildAnthropicBase64ImageBlock,
   loadVisionFewShotExamples,
 } from "./lib/engravingVisionFewShots.js";
 
 const REVIEW_PROMPT_VERSION = "2026-06-07";
-const DEFAULT_OPUS_MODEL = "claude-opus-4-8";
 const DEFAULT_HAIKU_MODEL = "claude-haiku-4-5";
 const DEFAULT_MAX_PAGES = 12;
 const DEFAULT_PAGES_PER_CALL = 1;
 const DEFAULT_RENDER_SCALE = 2;
-const ADVISOR_BETA = "advisor-tool-2026-03-01";
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
 
 globalThis.pdfjsWorker ??= { WorkerMessageHandler };
@@ -318,49 +328,6 @@ async function loadComposition(supabase, compositionId) {
   }
 
   return composition;
-}
-
-function getEngravingModelConfig() {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const model =
-    process.env.ANTHROPIC_ENGRAVING_MODEL ??
-    DEFAULT_OPUS_MODEL;
-  const advisorEnabled = toBoolean(
-    process.env.ANTHROPIC_ENGRAVING_ADVISOR_ENABLED,
-    false,
-  );
-  const advisorModel =
-    process.env.ANTHROPIC_ENGRAVING_ADVISOR_MODEL ??
-    DEFAULT_OPUS_MODEL;
-  const advisorMaxUses = toPositiveInt(
-    process.env.ANTHROPIC_ENGRAVING_ADVISOR_MAX_USES,
-    1,
-  );
-
-  if (!apiKey) {
-    throw new Error("Set ANTHROPIC_API_KEY for engraving review.");
-  }
-
-  return {
-    advisor: {
-      beta: ADVISOR_BETA,
-      enabled: advisorEnabled,
-      maxUses: advisorMaxUses,
-      model: advisorModel,
-    },
-    apiKey,
-    model,
-  };
-}
-
-function summarizeEngravingModelConfig(config) {
-  return {
-    advisor_enabled: Boolean(config?.advisor?.enabled),
-    advisor_max_uses: config?.advisor?.enabled ? config.advisor.maxUses : 0,
-    advisor_model: config?.advisor?.enabled ? config.advisor.model : null,
-    beta: config?.advisor?.enabled ? config.advisor.beta : null,
-    primary_model: config?.model ?? DEFAULT_OPUS_MODEL,
-  };
 }
 
 function getRenderOptions() {
@@ -820,61 +787,11 @@ function buildInstrumentationDetectionMessages({ composition, pageBatch }) {
   ];
 }
 
-function buildPageAnalysisMessages({
-  composition,
-  pageBatch,
-  routingMetadata,
-}) {
-  return [
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: [
-            `Composition: ${composition.title}`,
-            "",
-            "Inspect these score pages for engraving issues only.",
-            "Return JSON only using the requested schema.",
-            "Localize every finding with system_number and measure_number when visible. Use null only when the page cannot support that field.",
-            "bbox_hint is optional normalized [x,y,w,h] guidance only; approximate is acceptable.",
-            "",
-            `Prompt routing: ${JSON.stringify({
-              doc_type: routingMetadata.doc_type,
-              features: routingMetadata.features,
-              instrument_families: routingMetadata.instrument_families,
-              instruments: routingMetadata.instruments,
-              selected_chapters: routingMetadata.selected_chapters,
-            })}`,
-            "",
-            "Pages:",
-            ...pageBatch.map(
-              (page) =>
-                `- source_page_id=${page.sourcePageId}; file=${page.assetFilename}; page=${page.pageNumber}; size=${page.width}x${page.height}`,
-            ),
-          ].join("\n"),
-        },
-        ...pageBatch.map((page) => buildAnthropicImageBlock(page)),
-      ],
-    },
-  ];
-}
-
 function buildAnthropicImageBlock(page) {
   return buildAnthropicBase64ImageBlock({
     data: page.dataUrl.replace(/^data:image\/png;base64,/, ""),
     mediaType: "image/png",
   });
-}
-
-function buildCachedSystem(system) {
-  return [
-    {
-      cache_control: { type: "ephemeral" },
-      text: system,
-      type: "text",
-    },
-  ];
 }
 
 async function createValidatedPageAnalysis({
@@ -1009,27 +926,14 @@ async function createOpusMessage({
   };
 
   try {
-    const requestParams = {
-      max_tokens: maxTokens,
+    const message = await createAnthropicMessage({
+      advisor,
+      anthropic,
+      maxTokens,
       messages,
       model,
-      system: buildCachedSystem(system),
-    };
-    const message = advisor?.enabled
-      ? await anthropic.beta.messages.create({
-          ...requestParams,
-          betas: [advisor.beta],
-          tools: [
-            {
-              caching: { type: "ephemeral" },
-              max_uses: advisor.maxUses,
-              model: advisor.model,
-              name: "advisor",
-              type: "advisor_20260301",
-            },
-          ],
-        })
-      : await anthropic.messages.create(requestParams);
+      system,
+    });
     messageJson = toJson(message);
     usageJson = mergeUsage(usageJson, message.usage);
     output = extractAnthropicText(message.content);
@@ -1127,16 +1031,6 @@ async function createHaikuPolish({
   return output;
 }
 
-function extractAnthropicText(content) {
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (typeof part === "string") return part;
-      return part?.type === "text" ? part.text ?? "" : "";
-    })
-    .join("");
-}
-
 function stripMarkdownFence(text) {
   const trimmed = String(text ?? "").trim();
   const match = trimmed.match(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i);
@@ -1150,134 +1044,6 @@ function formatProviderError(source, error) {
 
   const status = error.status ? ` ${error.status}` : "";
   return `${source} failed${status}: ${error.message}`;
-}
-
-function parseJsonObject(text) {
-  const withoutFence = text
-    .trim()
-    .replace(/^```(?:json)?/i, "")
-    .replace(/```$/i, "")
-    .trim();
-  const start = withoutFence.indexOf("{");
-  const end = withoutFence.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return {};
-
-  try {
-    return JSON.parse(withoutFence.slice(start, end + 1));
-  } catch (error) {
-    console.warn("[engraving] Unable to parse engraving findings JSON.", error);
-    return {};
-  }
-}
-
-function validatePageAnalysisOutput(parsed) {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { message: "Response must be a JSON object.", valid: false };
-  }
-
-  if (!Array.isArray(parsed.findings)) {
-    return { message: "Response must contain a findings array.", valid: false };
-  }
-
-  if (parsed.findings.length > 12) {
-    return { message: "Response must contain no more than 12 findings.", valid: false };
-  }
-
-  for (const [index, finding] of parsed.findings.entries()) {
-    if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
-      return { message: `Finding ${index + 1} must be an object.`, valid: false };
-    }
-    if (!cleanText(finding.source_page_id)) {
-      return { message: `Finding ${index + 1} is missing source_page_id.`, valid: false };
-    }
-    if (!cleanText(finding.rule_id)) {
-      return { message: `Finding ${index + 1} is missing rule_id.`, valid: false };
-    }
-    if (!["low", "medium", "high"].includes(String(finding.severity ?? "").toLowerCase())) {
-      return {
-        message: `Finding ${index + 1} severity must be low, medium, or high.`,
-        valid: false,
-      };
-    }
-    if (!cleanText(finding.evidence) && !cleanText(finding.recommendation)) {
-      return {
-        message: `Finding ${index + 1} needs evidence or recommendation text.`,
-        valid: false,
-      };
-    }
-  }
-
-  return { message: "", valid: true };
-}
-
-function normalizeFindings(
-  parsed,
-  pageBatch,
-  { prefixCategories = {}, selectedRuleIds = null } = {},
-) {
-  const rawFindings = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray(parsed.findings)
-      ? parsed.findings
-      : [];
-  const pagesById = new Map(pageBatch.map((page) => [page.sourcePageId, page]));
-
-  return rawFindings
-    .map((finding) => {
-      const ruleId = cleanText(finding.rule_id);
-      if (selectedRuleIds && !selectedRuleIds.has(ruleId)) {
-        return null;
-      }
-      const sourcePageId =
-        typeof finding.source_page_id === "string"
-          ? finding.source_page_id
-          : "";
-      const fallbackPage = pageBatch.find(
-        (page) => page.pageNumber === Number(finding.page_number ?? finding.page),
-      );
-      const page = pagesById.get(sourcePageId) ?? fallbackPage ?? pageBatch[0];
-      const severity = normalizeSeverity(finding.severity);
-      const systemNumber = normalizePositiveInt(
-        finding.system_number ?? finding.system,
-      );
-      const measureNumber = normalizePositiveInt(
-        finding.measure_number ?? finding.measure,
-      );
-      const staffLabel = nullableText(finding.staff_label ?? finding.staff);
-      const bboxHint = normalizeBboxHint(finding.bbox_hint ?? finding.bboxHint);
-
-      return {
-        asset_filename: page.assetFilename,
-        category:
-          deriveCategoryFromRuleId(ruleId, {
-            prefix_categories: prefixCategories,
-          }) || "other",
-        confidence:
-          typeof finding.confidence === "number" ? finding.confidence : null,
-        evidence: cleanText(finding.evidence),
-        location_label:
-          cleanText(finding.location_label) ||
-          cleanText(finding.location) ||
-          buildLocationLabel({
-            measureNumber,
-            pageNumber: page.pageNumber,
-            staffLabel,
-            systemNumber,
-          }),
-        metadata_json: {
-          bbox_hint: bboxHint,
-          measure_number: measureNumber,
-          rule_id: ruleId,
-          source_page_id: page.sourcePageId,
-          staff_label: staffLabel,
-          system_number: systemNumber,
-        },
-        page_number: page.pageNumber,
-        recommendation: cleanText(finding.recommendation),
-        severity,
-      };
-    })
-    .filter((finding) => finding && (finding.evidence || finding.recommendation));
 }
 
 function emitPageFindings(res, { findings, modelNotes, pageBatch }) {
@@ -1308,95 +1074,8 @@ function groupFindingsBySourcePageId(findings) {
   return grouped;
 }
 
-function toClientFinding(finding, index) {
-  return {
-    asset_filename: finding.asset_filename,
-    bbox_hint: finding.metadata_json?.bbox_hint ?? null,
-    category: finding.category,
-    confidence: finding.confidence,
-    evidence: finding.evidence,
-    id: [
-      finding.metadata_json?.source_page_id ?? `page-${finding.page_number ?? "unknown"}`,
-      finding.metadata_json?.rule_id ?? "finding",
-      index + 1,
-    ].join(":"),
-    location_label: finding.location_label,
-    measure_number: finding.metadata_json?.measure_number ?? null,
-    page_number: finding.page_number,
-    recommendation: finding.recommendation,
-    rule_id: finding.metadata_json?.rule_id ?? "",
-    severity: finding.severity,
-    source_page_id: finding.metadata_json?.source_page_id ?? "",
-    staff_label: finding.metadata_json?.staff_label ?? null,
-    system_number: finding.metadata_json?.system_number ?? null,
-  };
-}
-
-function modelNotesForPage(modelNotes, page) {
-  if (!modelNotes) return "";
-  if (typeof modelNotes === "string") return modelNotes;
-  if (Array.isArray(modelNotes)) return modelNotes.join("\n");
-  if (typeof modelNotes === "object") {
-    return cleanText(modelNotes[page.sourcePageId] ?? modelNotes[page.pageNumber]);
-  }
-  return "";
-}
-
-function normalizeSeverity(value) {
-  const severity = String(value ?? "").toLowerCase();
-  return ["low", "medium", "high"].includes(severity) ? severity : "medium";
-}
-
 function cleanText(value) {
   return String(value ?? "").trim();
-}
-
-function nullableText(value) {
-  const text = cleanText(value);
-  return text || null;
-}
-
-function normalizePositiveInt(value) {
-  const number = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(number) && number > 0 ? number : null;
-}
-
-function normalizeBboxHint(value) {
-  if (Array.isArray(value) && value.length === 4) {
-    const numbers = value.map((item) => Number(item));
-    return numbers.every((number) => Number.isFinite(number))
-      ? numbers.map((number) => clamp01(number))
-      : null;
-  }
-
-  if (value && typeof value === "object") {
-    const x = Number(value.x);
-    const y = Number(value.y);
-    const width = Number(value.width ?? value.w);
-    const height = Number(value.height ?? value.h);
-    if ([x, y, width, height].every((number) => Number.isFinite(number))) {
-      return [x, y, width, height].map((number) => clamp01(number));
-    }
-  }
-
-  return null;
-}
-
-function clamp01(value) {
-  return Math.min(1, Math.max(0, value));
-}
-
-function buildLocationLabel({
-  measureNumber,
-  pageNumber,
-  staffLabel,
-  systemNumber,
-}) {
-  const parts = [`Page ${pageNumber}`];
-  if (systemNumber) parts.push(`system ${systemNumber}`);
-  if (measureNumber) parts.push(`measure ${measureNumber}`);
-  if (staffLabel) parts.push(staffLabel);
-  return parts.join(", ");
 }
 
 function buildPolishInput({ composition, sourceText }) {
@@ -1613,17 +1292,33 @@ async function recordEngravingFindings(
 ) {
   if (!supabase || !findings.length) return;
 
-  const { error } = await supabase.from("engraving_findings").insert(
-    findings.map((finding) => ({
-      ...finding,
-      composition_id: compositionId,
-      owner_id: ownerId,
-      review_response_id: reviewResponseId,
-      review_run_id: reviewRunId,
-    })),
-  );
+  const rows = findings.map((finding, index) => ({
+    ...finding,
+    composition_id: compositionId,
+    metadata_json: {
+      ...(finding.metadata_json ?? {}),
+      feedback_index: index,
+      },
+    owner_id: ownerId,
+    review_response_id: reviewResponseId,
+    review_run_id: reviewRunId,
+  }));
+  const { data, error } = await supabase
+    .from("engraving_findings")
+    .insert(rows)
+    .select("id,metadata_json");
 
   if (error) console.warn("[engraving] Unable to store findings.", error);
+  for (const row of data ?? []) {
+    const index = Number(row.metadata_json?.feedback_index);
+    if (Number.isInteger(index) && findings[index]) {
+      findings[index].finding_db_id = row.id;
+      findings[index].metadata_json = {
+        ...(findings[index].metadata_json ?? {}),
+        feedback_index: index,
+      };
+    }
+  }
 }
 
 function chunkItems(items, size) {
@@ -1644,21 +1339,8 @@ function toPositiveNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function toBoolean(value, fallback = false) {
-  if (value === undefined || value === null || value === "") return fallback;
-  if (typeof value === "boolean") return value;
-  const normalized = String(value).trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
-}
-
 function mergeUsage(current, next) {
   return next ? { ...current, ...toJson(next) } : current;
-}
-
-function toJson(value) {
-  return value ? JSON.parse(JSON.stringify(value)) : {};
 }
 
 function hashText(value) {

@@ -28,6 +28,7 @@ ENGRAVING_MAX_PAGES=12
 ENGRAVING_PAGES_PER_CALL=3
 ENGRAVING_RENDER_SCALE=2
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+FEEDBACK_ADMIN_EMAILS=you@example.com
 ```
 
 The browser app must never receive a Supabase service role key or Anthropic API
@@ -67,6 +68,58 @@ npm install
 npm run dev
 ```
 
+## Engraving Eval Loop
+
+The eval tooling is file-based and lives under `eval/`. Golden inputs are PNGs,
+not PDFs.
+
+1. Add page PNGs to `eval/golden/pages/` as `{scoreId}_p{NN}.png`.
+2. Add score metadata to `eval/golden/manifest.json`.
+3. Generate labeling sheets and blank truth templates:
+
+```sh
+npm run eval:sheets -- --templates
+```
+
+4. Review `eval/golden/sheets/REVIEW.md`, then label
+   `eval/golden/truth/{pageId}.json` using the printed `S#` and `m#` labels.
+5. Validate truth:
+
+```sh
+npm run eval:validate-truth
+```
+
+6. Run a baseline:
+
+```sh
+npm run eval:run -- --label baseline
+```
+
+7. Reproduce without API calls:
+
+```sh
+npm run eval:run -- --mock {runId} --label baseline-mock
+```
+
+8. Compare after a prompt/model/rule change:
+
+```sh
+npm run eval:compare -- {baselineRunId} {experimentRunId}
+```
+
+9. Import canonicalized in-app feedback after admin review:
+
+```sh
+npm run eval:import-feedback -- --dry-run
+npm run eval:import-feedback
+```
+
+Reports are written to `eval/report/`; raw and normalized run outputs are written
+to `eval/runs/`. Eval reports separate exhaustive golden pages, partial/feedback
+pages, regression subsets, and seeded cases so headline recall only comes from
+fully labeled pages. Generated reports, runs, sheets, and seeded render artifacts
+are ignored by git.
+
 ## Build
 
 ```sh
@@ -92,6 +145,11 @@ For review/DPO capture, run
 [supabase/migrations/20260530120000_create_review_capture_schema.sql](supabase/migrations/20260530120000_create_review_capture_schema.sql).
 This creates `review_runs` and `review_responses`, grants server-side write
 access to `service_role`, and allows users to read only their own review rows.
+
+For in-app eval feedback, run
+[supabase/migrations/20260610100000_create_finding_verdicts.sql](supabase/migrations/20260610100000_create_finding_verdicts.sql).
+This creates `finding_verdicts` for useful/irrelevant/not-true feedback and
+admin canonicalization into eval truth.
 
 If the Supabase SQL editor limits you to 100 lines, run the files in
 [supabase/manual_sql](supabase/manual_sql) in numeric order instead.

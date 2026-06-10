@@ -9,3 +9,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+eval/runs/*
+!eval/runs/.gitkeep
+eval/report/*
+!eval/report/.gitkeep
+eval/golden/sheets/*
+!eval/golden/sheets/.gitkeep
+eval/seeded/pages/*
+!eval/seeded/pages/.gitkeep
+eval/seeded/truth/*
+!eval/seeded/truth/.gitkeep

@@ -29,6 +29,7 @@ ENGRAVING_MAX_PAGES=12
 ENGRAVING_PAGES_PER_CALL=3
 ENGRAVING_RENDER_SCALE=2
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+FEEDBACK_ADMIN_EMAILS=you@example.com
 ```
 
 Do not put a service role key or Anthropic API key in the Vue app or expose it
@@ -110,6 +111,11 @@ writes to `service_role`, and lets authenticated users read only their own revie
 rows. The live review endpoint renders the submitted PDF pages and asks the
 configured Anthropic engraving model for findings. The user can optionally click **Polish output** to ask Haiku
 to polish those findings into Markdown.
+
+Finding feedback capture is in
+`supabase/migrations/20260610100000_create_finding_verdicts.sql`. It creates
+`finding_verdicts` for useful/irrelevant/not-true votes and admin
+canonicalization into eval truth files.
 
 Create one private bucket:
 

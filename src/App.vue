@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import AnnotatedPdfViewer from "./components/AnnotatedPdfViewer.vue";
 import ReviewMarkdown from "./components/ReviewMarkdown.vue";
 import {
@@ -38,6 +38,9 @@ const reviewPolished = ref(false);
 const activeReviewAction = ref("analyze");
 const pageFindings = ref([]);
 const routePath = ref(normalizePath(window.location.pathname));
+const adminFeedbackRows = ref([]);
+const adminFeedbackStatus = ref("idle");
+const adminFeedbackError = ref("");
 
 let authSubscription = null;
 let reviewAbortController = null;
@@ -227,6 +230,9 @@ const isAuthCallbackRoute = computed(() => routePath.value === "/auth/callback")
 const isOauthConsentRoute = computed(
     () => routePath.value === "/oauth/consent",
 );
+const isAdminFeedbackRoute = computed(
+    () => routePath.value === "/admin/feedback",
+);
 const currentLegalPage = computed(
     () => legalPages.find((page) => page.path === routePath.value) ?? null,
 );
@@ -302,6 +308,15 @@ onMounted(async () => {
     authReady.value = true;
 });
 
+watch(
+    () => [routePath.value, session.value?.access_token],
+    () => {
+        if (isAdminFeedbackRoute.value && session.value?.access_token) {
+            loadAdminFeedback();
+        }
+    },
+);
+
 onUnmounted(() => {
     window.removeEventListener("popstate", syncRoute);
     authSubscription?.unsubscribe();
@@ -331,6 +346,21 @@ function replaceToWorkspace() {
 function navigateTo(path) {
     window.history.pushState({}, "", path);
     syncRoute();
+}
+
+async function authorizedFetch(url, options = {}) {
+    const token = session.value?.access_token;
+    if (!token) {
+        throw new Error("Sign in before continuing.");
+    }
+    return fetch(url, {
+        ...options,
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            ...(options.headers ?? {}),
+        },
+    });
 }
 
 function logAuthEvent(event, details = {}) {
@@ -1048,6 +1078,135 @@ function addPageFindings(payload) {
     ].sort((a, b) => (a.page ?? 0) - (b.page ?? 0));
 }
 
+async function submitFindingVerdict({ finding, verdict }) {
+    const findingDbId = finding.finding_db_id;
+    if (!findingDbId) {
+        updateFindingFeedback(finding.id, {
+            feedback_status: "Feedback unavailable for this finding.",
+        });
+        return;
+    }
+
+    updateFindingFeedback(finding.id, {
+        feedback_status: "Saving feedback.",
+    });
+
+    try {
+        const response = await authorizedFetch("/api/finding-verdicts", {
+            body: JSON.stringify({
+                finding_db_id: findingDbId,
+                verdict,
+            }),
+            method: "POST",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.error ?? "Unable to save feedback.");
+        }
+        updateFindingFeedback(finding.id, {
+            feedback_status: "Feedback saved.",
+            feedback_verdict: verdict,
+            verdict_id: payload.verdict?.id ?? finding.verdict_id ?? null,
+        });
+    } catch (error) {
+        updateFindingFeedback(finding.id, {
+            feedback_status:
+                error instanceof Error ? error.message : "Unable to save feedback.",
+        });
+    }
+}
+
+function updateFindingFeedback(findingId, updates) {
+    pageFindings.value = pageFindings.value.map((page) => ({
+        ...page,
+        findings: (page.findings ?? []).map((finding) =>
+            finding.id === findingId ? { ...finding, ...updates } : finding,
+        ),
+    }));
+}
+
+async function loadAdminFeedback() {
+    adminFeedbackStatus.value = "loading";
+    adminFeedbackError.value = "";
+
+    try {
+        const response = await authorizedFetch("/api/admin/feedback?status=pending", {
+            method: "GET",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.error ?? "Unable to load feedback queue.");
+        }
+        adminFeedbackRows.value = (payload.feedback ?? []).map(prepareAdminFeedbackRow);
+        adminFeedbackStatus.value = "ready";
+    } catch (error) {
+        adminFeedbackError.value =
+            error instanceof Error ? error.message : "Unable to load feedback queue.";
+        adminFeedbackStatus.value = "error";
+    }
+}
+
+async function canonicalizeFeedback(row, canonicalKind) {
+    adminFeedbackError.value = "";
+    row.__saving = canonicalKind;
+
+    try {
+        const canonicalPayload = JSON.parse(row.__payloadText || "{}");
+        const response = await authorizedFetch("/api/admin/feedback", {
+            body: JSON.stringify({
+                canonical_kind: canonicalKind,
+                canonical_payload_json: canonicalPayload,
+                verdict_id: row.id,
+            }),
+            method: "PATCH",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.error ?? "Unable to canonicalize feedback.");
+        }
+        adminFeedbackRows.value = adminFeedbackRows.value.filter(
+            (item) => item.id !== row.id,
+        );
+    } catch (error) {
+        adminFeedbackError.value =
+            error instanceof Error ? error.message : "Unable to canonicalize feedback.";
+    } finally {
+        row.__saving = "";
+    }
+}
+
+function prepareAdminFeedbackRow(row) {
+    const defaultKind =
+        row.verdict === "not_true"
+            ? "known_false_positive"
+            : row.verdict === "irrelevant"
+              ? "suppressed"
+              : "accepted";
+    return {
+        ...row,
+        __payloadText: JSON.stringify(defaultCanonicalPayload(row, defaultKind), null, 2),
+        __saving: "",
+    };
+}
+
+function defaultCanonicalPayload(row, canonicalKind) {
+    const finding = row.engraving_findings ?? {};
+    const metadata = finding.metadata_json ?? {};
+    const ruleId = canonicalKind === "ignore" ? "IGNORE" : metadata.rule_id;
+    return {
+        gt_id: `verdict-${String(row.id ?? "").slice(0, 8)}`,
+        measure_number: metadata.measure_number ?? null,
+        note: row.note || finding.evidence || "",
+        page: metadata.source_page_id ?? "",
+        rule_id: ruleId ?? "",
+        severity: finding.severity ?? "medium",
+        source: canonicalKind === "user_miss" ? "user_miss" : "verdict",
+        staff_label: metadata.staff_label ?? null,
+        suppressed: canonicalKind === "suppressed",
+        system_number: metadata.system_number ?? null,
+    };
+}
+
 function inferCompositionTitle() {
     const firstFile =
         selectedFiles.value[0]?.file?.name ?? "Untitled composition";
@@ -1220,6 +1379,118 @@ function formatBytes(bytes) {
         </section>
 
         <section
+            v-if="isAdminFeedbackRoute"
+            class="admin-page"
+            aria-labelledby="admin-feedback-title"
+        >
+            <article class="admin-card">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Feedback Admin</p>
+                        <h2 id="admin-feedback-title">Finding verdict queue</h2>
+                    </div>
+                    <button class="button" type="button" @click="loadAdminFeedback">
+                        Refresh
+                    </button>
+                </div>
+
+                <p v-if="!user" class="auth-helper">
+                    Sign in with an allowlisted admin email to review feedback.
+                </p>
+                <p v-else-if="adminFeedbackStatus === 'loading'" class="viewer-status">
+                    Loading feedback.
+                </p>
+                <p v-if="adminFeedbackError" class="error-text">
+                    {{ adminFeedbackError }}
+                </p>
+                <p
+                    v-if="
+                        user &&
+                        adminFeedbackStatus === 'ready' &&
+                        !adminFeedbackRows.length
+                    "
+                    class="viewer-status"
+                >
+                    No pending feedback.
+                </p>
+
+                <article
+                    v-for="row in adminFeedbackRows"
+                    :key="row.id"
+                    class="admin-feedback-row"
+                >
+                    <div>
+                        <strong>
+                            {{ row.engraving_findings?.metadata_json?.rule_id ?? "rule" }}
+                            · {{ row.verdict }}
+                        </strong>
+                        <p>
+                            {{ row.engraving_findings?.evidence }}
+                        </p>
+                        <p v-if="row.engraving_findings?.recommendation">
+                            {{ row.engraving_findings.recommendation }}
+                        </p>
+                    </div>
+                    <textarea
+                        v-model="row.__payloadText"
+                        class="admin-feedback-payload"
+                        rows="8"
+                    />
+                    <div class="admin-feedback-actions">
+                        <button
+                            class="button button--compact"
+                            type="button"
+                            :disabled="Boolean(row.__saving)"
+                            @click="canonicalizeFeedback(row, 'accepted')"
+                        >
+                            Accepted
+                        </button>
+                        <button
+                            class="button button--compact"
+                            type="button"
+                            :disabled="Boolean(row.__saving)"
+                            @click="canonicalizeFeedback(row, 'suppressed')"
+                        >
+                            Suppressed
+                        </button>
+                        <button
+                            class="button button--compact"
+                            type="button"
+                            :disabled="Boolean(row.__saving)"
+                            @click="canonicalizeFeedback(row, 'known_false_positive')"
+                        >
+                            Known FP
+                        </button>
+                        <button
+                            class="button button--compact"
+                            type="button"
+                            :disabled="Boolean(row.__saving)"
+                            @click="canonicalizeFeedback(row, 'user_miss')"
+                        >
+                            User miss
+                        </button>
+                        <button
+                            class="button button--compact"
+                            type="button"
+                            :disabled="Boolean(row.__saving)"
+                            @click="canonicalizeFeedback(row, 'ignore')"
+                        >
+                            Ignore
+                        </button>
+                        <button
+                            class="button button--compact"
+                            type="button"
+                            :disabled="Boolean(row.__saving)"
+                            @click="canonicalizeFeedback(row, 'discard')"
+                        >
+                            Discard
+                        </button>
+                    </div>
+                </article>
+            </article>
+        </section>
+
+        <section
             v-if="!isSupabaseConfigured && !isLegalRoute"
             class="setup-banner"
         >
@@ -1236,7 +1507,12 @@ function formatBytes(bytes) {
         </section>
 
         <div
-            v-if="!isAuthCallbackRoute && !isOauthConsentRoute && !isLegalRoute"
+            v-if="
+                !isAuthCallbackRoute &&
+                !isOauthConsentRoute &&
+                !isLegalRoute &&
+                !isAdminFeedbackRoute
+            "
             class="workspace"
         >
             <section class="upload-panel" aria-labelledby="upload-title">
@@ -1304,6 +1580,7 @@ function formatBytes(bytes) {
                             :debug-geometry="debugGeometry"
                             :findings="pageFindings"
                             :review-status="reviewStatus"
+                            @verdict="submitFindingVerdict"
                         />
                     </div>
 

@@ -834,6 +834,85 @@ select:disabled {
   text-transform: uppercase;
 }
 
+.finding-popover__feedback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.finding-popover__feedback button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: #ffffff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.finding-popover__feedback button:hover,
+.finding-popover__feedback button.is-selected {
+  border-color: var(--primary);
+  color: var(--primary-strong);
+}
+
+.finding-popover__feedback-status {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.admin-page {
+  width: min(1080px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 26px 0 48px;
+}
+
+.admin-card,
+.admin-feedback-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.admin-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.admin-feedback-row {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.admin-feedback-row p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.admin-feedback-payload {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  resize: vertical;
+}
+
+.admin-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .unplaced-findings {
   display: grid;
   gap: 10px;

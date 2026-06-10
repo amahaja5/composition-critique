@@ -24,6 +24,7 @@ const props = defineProps({
         type: String,
     },
 });
+const emit = defineEmits(["verdict"]);
 
 const viewerRoot = ref(null);
 const pages = ref([]);
@@ -355,6 +356,10 @@ function selectFinding(finding) {
         activeFindingId.value === finding.id ? "" : finding.id;
 }
 
+function submitVerdict(finding, verdict) {
+    emit("verdict", { finding, verdict });
+}
+
 function activeFindingForPage(page) {
     if (!activeFindingId.value) return null;
     return markersForPage(page).find((marker) => marker.finding.id === activeFindingId.value);
@@ -478,6 +483,65 @@ function cleanupPdfDocuments() {
                             {{
                                 activeFindingForPage(page).finding
                                     .recommendation
+                            }}
+                        </p>
+                        <div class="finding-popover__feedback">
+                            <button
+                                type="button"
+                                :class="{
+                                    'is-selected':
+                                        activeFindingForPage(page).finding
+                                            .feedback_verdict === 'useful',
+                                }"
+                                @click.stop="
+                                    submitVerdict(
+                                        activeFindingForPage(page).finding,
+                                        'useful',
+                                    )
+                                "
+                            >
+                                Useful
+                            </button>
+                            <button
+                                type="button"
+                                :class="{
+                                    'is-selected':
+                                        activeFindingForPage(page).finding
+                                            .feedback_verdict === 'irrelevant',
+                                }"
+                                @click.stop="
+                                    submitVerdict(
+                                        activeFindingForPage(page).finding,
+                                        'irrelevant',
+                                    )
+                                "
+                            >
+                                Irrelevant
+                            </button>
+                            <button
+                                type="button"
+                                :class="{
+                                    'is-selected':
+                                        activeFindingForPage(page).finding
+                                            .feedback_verdict === 'not_true',
+                                }"
+                                @click.stop="
+                                    submitVerdict(
+                                        activeFindingForPage(page).finding,
+                                        'not_true',
+                                    )
+                                "
+                            >
+                                Not true
+                            </button>
+                        </div>
+                        <p
+                            v-if="activeFindingForPage(page).finding.feedback_status"
+                            class="finding-popover__feedback-status"
+                        >
+                            {{
+                                activeFindingForPage(page).finding
+                                    .feedback_status
                             }}
                         </p>
                     </article>
