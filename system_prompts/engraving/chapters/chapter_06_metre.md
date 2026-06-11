@@ -15,14 +15,20 @@ Chapter scope: Meter, time signatures, beat hierarchy, barring, and rhythmic gro
 </rules_time_signatures>
 
 <rules_metre>
-- METR-01: Beaming must show the visible meter and beat hierarchy.
-- METR-02: Do not beam across the main beat division in a way that hides the beat in simple meters.
-- METR-03: In compound meters, beam subdivisions to show dotted-beat units unless another grouping is explicitly indicated.
-- METR-04: Rests should be grouped to show the beat structure, not merely to fill duration arithmetically.
-- METR-05: Do not obscure the middle of a bar in 4/4 or similar meters when the beat structure matters.
-- METR-06: Ties across beats should clarify, not hide, the metric structure.
-- METR-07: Syncopations should be notated so their relation to the beat remains readable.
-- METR-08: Irregular grouping should be marked clearly with beams, brackets, or tuplets as needed.
+-PRELIM-01: Denominator Unit: The note value represented by the denominator of the time signature (e.g., in 4/4, it is a $1/4$ note; in 6/8, it is a $1/8$ note).
+-PRELIM-02: Primary Beat Unit (Simple Meter): Equivalent to the Denominator Unit.
+-PRELIM-03: Primary Beat Unit (Compound Meter): A dotted note equal to three times the value of the subdivision (e.g., in 6/8, the unit is a dotted $1/4$ note).
+- METR-01: Every measure must visually explicitly expose the onset of every Primary Beat Unit. Notes or rests that cross a primary beat boundary must be split and joined with a tie (for notes) or broken into separate elements (for rests).
+-METR-02: Define simple meters as those where the upper numeral dictates the number of Primary Beat Units per measure (e.g., 1/4, 2/4, 3/4, 4/4, 5/4, 2/2, 3/2, 4/2).
+-METR-03: Define compound meters as those where the upper numeral is a multiple of 3 ($\ge 6$), and the Primary Beat Unit is a dotted note equal to three of the denominator units (e.g., 6/8, 9/8, 12/8, 15/8).
+- METR-04: Beams must not cross between one Primary Beat Unit to another.
+- METR-05: In compound meter, beams must group notes into units matching the dotted Primary Beat Unit
+- METR-06: Rests are subject to the same rules as notes. Rests must be grouped to visually expose the beginning of every Primary Beat Unit. Do not combine rests if they obscure the beginning of every Primary Beat Unit.
+- METR-07: In 4/4 (or similar meters with 4 primary beats), Beat 3 must be shown. There are two allowed exceptions in 4/4: $\frac{1}{8} note, \frac{1}{4} note, \frac{1}{4} note, \frac{1}{4} note, \frac{1}{8} note$ and $\frac{1}{4} note, \frac{1}{2} note, \frac{1}{4} note$
+- METR-08: Ties across beats should visually maintain the Primary Beat Unit.
+- METR-09: Syncopations should be notated so their relation to the beat remains readable.
+- METR-010: Tuplets should be beamed together with a numeral. Brackets should be added when the total value of the tuplet is less than the Primary Beat Unit.
+-METR-011: The sum of all note durations, rest durations, and tuplet-scaled values within a single measure must precisely equal the mathematical value of the time signature.
 </rules_metre>
 
 </chapter_06_metre>
